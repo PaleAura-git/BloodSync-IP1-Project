@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import donorRoutes from './routes/donor';
 import quizRoutes from './routes/quiz';
 import hospitalRoutes from './routes/hospital';
+import searchRoutes from './routes/search';
 
 const app: Application = express();
 
@@ -27,6 +28,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/donors', donorRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/hospitals', hospitalRoutes);
+app.use('/api/search', searchRoutes);
 // app.use('/api/donations', ...);
 
 // Error handler (must be last)
