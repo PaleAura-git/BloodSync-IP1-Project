@@ -1,7 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
+import User, { IUser } from '../models/User';
 
-export const protect = (req: Request, res: Response, next: NextFunction): void => {
+export interface AuthRequest extends Request {
+  user?: IUser;
+}
+
+export const protect = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -12,10 +21,19 @@ export const protect = (req: Request, res: Response, next: NextFunction): void =
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    (req as Request & { user: unknown }).user = decoded;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET) as JwtPayload;
+    const user = await User.findById(decoded.id).select('-password');
+    if (!user) {
+      res.status(401).json({ success: false, message: 'Not authorized, user not found' });
+      return;
+    }
+    req.user = user;
     next();
   } catch (err) {
-    res.status(401).json({ success: false, message: 'Not authorized, token invalid' });
+    const message =
+      err instanceof jwt.TokenExpiredError
+        ? 'Not authorized, token expired'
+        : 'Not authorized, token invalid';
+    res.status(401).json({ success: false, message });
   }
 };

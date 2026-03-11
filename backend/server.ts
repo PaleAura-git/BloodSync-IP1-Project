@@ -3,6 +3,7 @@ import express, { Application } from 'express';
 import cors from 'cors';
 import connectDB from './config/db';
 import errorHandler from './middleware/errorHandler';
+import authRoutes from './routes/auth';
 
 const app: Application = express();
 
@@ -18,10 +19,10 @@ app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'BloodSync API is running', timestamp: new Date().toISOString() });
 });
 
-// Routes (add as they are created)
-// app.use('/api/auth', require('./routes/auth'));
-// app.use('/api/users', require('./routes/users'));
-// app.use('/api/donations', require('./routes/donations'));
+// Routes
+app.use('/api/auth', authRoutes);
+// app.use('/api/users', ...);
+// app.use('/api/donations', ...);
 
 // Error handler (must be last)
 app.use(errorHandler);
