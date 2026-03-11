@@ -2,10 +2,13 @@
   "name": "bloodsync-backend",
   "version": "1.0.0",
   "description": "BloodSync - Blood Donation Platform Backend",
-  "main": "server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "ts-node-dev --respawn --transpile-only server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "seed:hospitals": "ts-node seeders/hospitalSeeder.ts",
+    "seed:donors": "ts-node seeders/donorSeeder.ts"
   },
   "keywords": [
     "blood-donation",
@@ -23,5 +26,15 @@
     "mongoose": "^9.3.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/mongoose": "^5.11.96",
+    "@types/node": "^25.4.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
   }
 }

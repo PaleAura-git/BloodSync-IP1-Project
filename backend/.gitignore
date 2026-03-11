@@ -1,2 +1,6 @@
 node_modules/
 .env
+dist/
+/*.js
+*.d.ts
+!types/environment.d.ts

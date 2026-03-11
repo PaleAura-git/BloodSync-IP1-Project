@@ -1,10 +1,10 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const connectDB = require('./config/db');
-const errorHandler = require('./middleware/errorHandler');
+import 'dotenv/config';
+import express, { Application } from 'express';
+import cors from 'cors';
+import connectDB from './config/db';
+import errorHandler from './middleware/errorHandler';
 
-const app = express();
+const app: Application = express();
 
 // Connect to MongoDB
 connectDB();
@@ -31,4 +31,4 @@ app.listen(PORT, () => {
   console.log(`BloodSync server running on port ${PORT} [${process.env.NODE_ENV}]`);
 });
 
-module.exports = app;
+export default app;
