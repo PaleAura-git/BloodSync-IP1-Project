@@ -102,7 +102,7 @@ const donorSchema = new Schema<IDonor>(
   { timestamps: true }
 );
 
-donorSchema.index({ userId: 1 });
+
 donorSchema.index({ bloodType: 1 });
 donorSchema.index({ neighborhood: 1 });
 donorSchema.index({ eligibilityStatus: 1 });
