@@ -6,6 +6,7 @@ import errorHandler from './middleware/errorHandler';
 import authRoutes from './routes/auth';
 import donorRoutes from './routes/donor';
 import quizRoutes from './routes/quiz';
+import hospitalRoutes from './routes/hospital';
 
 const app: Application = express();
 
@@ -25,6 +26,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/donors', donorRoutes);
 app.use('/api/quiz', quizRoutes);
+app.use('/api/hospitals', hospitalRoutes);
 // app.use('/api/donations', ...);
 
 // Error handler (must be last)
