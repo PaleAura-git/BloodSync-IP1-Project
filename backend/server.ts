@@ -5,6 +5,7 @@ import connectDB from './config/db';
 import errorHandler from './middleware/errorHandler';
 import authRoutes from './routes/auth';
 import donorRoutes from './routes/donor';
+import quizRoutes from './routes/quiz';
 
 const app: Application = express();
 
@@ -23,6 +24,7 @@ app.get('/api/health', (req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/donors', donorRoutes);
+app.use('/api/quiz', quizRoutes);
 // app.use('/api/donations', ...);
 
 // Error handler (must be last)
