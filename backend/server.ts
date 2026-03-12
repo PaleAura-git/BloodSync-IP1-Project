@@ -9,6 +9,7 @@ import quizRoutes from './routes/quiz';
 import hospitalRoutes from './routes/hospital';
 import searchRoutes from './routes/search';
 import notificationRoutes from './routes/notification';
+import donationRoutes from './routes/donation';
 
 const app: Application = express();
 
@@ -31,7 +32,7 @@ app.use('/api/quiz', quizRoutes);
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/notifications', notificationRoutes);
-// app.use('/api/donations', ...);
+app.use('/api/donations', donationRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
