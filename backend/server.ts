@@ -10,11 +10,16 @@ import hospitalRoutes from './routes/hospital';
 import searchRoutes from './routes/search';
 import notificationRoutes from './routes/notification';
 import donationRoutes from './routes/donation';
+import urgentRequestRoutes from './routes/urgentRequest';
+import { startExpireUrgentRequestsJob } from './jobs/expireUrgentRequests';
 
 const app: Application = express();
 
 // Connect to MongoDB
 connectDB();
+
+// Start background jobs
+startExpireUrgentRequestsJob();
 
 // Middleware
 app.use(cors());
@@ -33,6 +38,7 @@ app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/donations', donationRoutes);
+app.use('/api/urgent-requests', urgentRequestRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
