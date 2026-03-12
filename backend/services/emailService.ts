@@ -1,15 +1,33 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { Transporter } from 'nodemailer';
 import { BloodType } from '../types/donor';
 
-interface DonationRequestEmailOptions {
-  donorEmail: string;
-  hospitalName: string;
-  message: string;
-  bloodType?: BloodType;
-  isUrgent: boolean;
+const TAG = '[emailService]';
+
+// ─── Env validation ──────────────────────────────────────────────────────────
+
+const REQUIRED_ENV = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_FROM'] as const;
+
+function validateEnv(): string | null {
+  for (const key of REQUIRED_ENV) {
+    if (!process.env[key]) return `Missing required env var: ${key}`;
+  }
+  return null;
 }
 
-function createTransporter() {
+function logConfig(): void {
+  console.log(`${TAG} SMTP config:`, {
+    host: process.env.EMAIL_HOST,
+    port: process.env.EMAIL_PORT,
+    secure: Number(process.env.EMAIL_PORT) === 465,
+    user: process.env.EMAIL_USER,
+    from: process.env.EMAIL_FROM,
+    pass: process.env.EMAIL_PASS ? `[set, ${process.env.EMAIL_PASS.length} chars]` : '[NOT SET]',
+  });
+}
+
+// ─── Transporter ─────────────────────────────────────────────────────────────
+
+function createTransporter(): Transporter {
   return nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
     port: Number(process.env.EMAIL_PORT),
@@ -21,12 +39,59 @@ function createTransporter() {
   });
 }
 
+/**
+ * Tests the SMTP connection. Call this on server startup or before a send batch.
+ * Returns true if the connection succeeds, false otherwise.
+ */
+export async function verifyTransporter(): Promise<boolean> {
+  const envError = validateEnv();
+  if (envError) {
+    console.error(`${TAG} [verify] Env check failed — ${envError}`);
+    return false;
+  }
+
+  logConfig();
+  const transporter = createTransporter();
+
+  try {
+    console.log(`${TAG} [verify] Testing SMTP connection to ${process.env.EMAIL_HOST}:${process.env.EMAIL_PORT}…`);
+    await transporter.verify();
+    console.log(`${TAG} [verify] ✓ SMTP connection OK — ready to send`);
+    return true;
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { code?: string; responseCode?: number; response?: string };
+    console.error(`${TAG} [verify] ✗ SMTP connection failed`);
+    console.error(`${TAG} [verify]   code:         ${e.code ?? 'n/a'}`);
+    console.error(`${TAG} [verify]   responseCode: ${e.responseCode ?? 'n/a'}`);
+    console.error(`${TAG} [verify]   response:     ${e.response ?? 'n/a'}`);
+    console.error(`${TAG} [verify]   message:      ${e.message}`);
+
+    if (e.code === 'ECONNREFUSED') {
+      console.error(`${TAG} [verify]   → Cannot reach ${process.env.EMAIL_HOST}:${process.env.EMAIL_PORT}. Check EMAIL_HOST/PORT and firewall.`);
+    } else if (e.responseCode === 535 || e.code === 'EAUTH') {
+      console.error(`${TAG} [verify]   → Authentication failed. Check EMAIL_USER/PASS. For Gmail, use a 16-char App Password (not your account password).`);
+    } else if (e.code === 'ESOCKET' || e.code === 'ETIMEDOUT') {
+      console.error(`${TAG} [verify]   → Network/TLS error. Try EMAIL_PORT=465 with secure:true, or EMAIL_PORT=587 with secure:false.`);
+    }
+
+    return false;
+  }
+}
+
+// ─── HTML template ───────────────────────────────────────────────────────────
+
+interface DonationRequestEmailOptions {
+  donorEmail: string;
+  hospitalName: string;
+  message: string;
+  bloodType?: BloodType;
+  isUrgent: boolean;
+}
+
 function buildEmailHtml(opts: DonationRequestEmailOptions): string {
   const { hospitalName, message, bloodType, isUrgent } = opts;
-
   const accentColor = isUrgent ? '#c0392b' : '#e74c3c';
   const badgeText = isUrgent ? '🚨 URGENT REQUEST' : '🩸 DONATION REQUEST';
-  const badgeBg = isUrgent ? '#c0392b' : '#e74c3c';
 
   const bloodTypeBlock = bloodType
     ? `<div style="text-align:center;margin:28px 0;">
@@ -45,8 +110,6 @@ function buildEmailHtml(opts: DonationRequestEmailOptions): string {
   <title>BloodSync — Donation Request</title>
 </head>
 <body style="margin:0;padding:0;background:#f4f4f4;font-family:'Segoe UI',Arial,sans-serif;">
-
-  <!-- Wrapper -->
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:40px 0;">
     <tr>
       <td align="center">
@@ -72,12 +135,10 @@ function buildEmailHtml(opts: DonationRequestEmailOptions): string {
           <!-- Body -->
           <tr>
             <td style="padding:40px;">
-
-              <!-- Hospital info -->
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="background:#fdf2f2;border-left:4px solid ${accentColor};
-                              border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:24px;">
+                              border-radius:0 8px 8px 0;padding:16px 20px;">
                     <p style="margin:0;font-size:12px;color:#999;
                                text-transform:uppercase;letter-spacing:1px;">From</p>
                     <p style="margin:4px 0 0;font-size:18px;font-weight:700;
@@ -88,7 +149,6 @@ function buildEmailHtml(opts: DonationRequestEmailOptions): string {
 
               ${bloodTypeBlock}
 
-              <!-- Message -->
               <div style="margin:28px 0;">
                 <p style="margin:0 0 10px;font-size:12px;color:#999;
                            text-transform:uppercase;letter-spacing:1px;">Message</p>
@@ -98,7 +158,6 @@ function buildEmailHtml(opts: DonationRequestEmailOptions): string {
                 </p>
               </div>
 
-              <!-- CTA -->
               <div style="text-align:center;margin:36px 0 20px;">
                 <p style="margin:0 0 16px;font-size:14px;color:#666;">
                   Your donation can save up to <strong style="color:${accentColor};">3 lives</strong>.
@@ -111,7 +170,6 @@ function buildEmailHtml(opts: DonationRequestEmailOptions): string {
                   Respond to Request
                 </a>
               </div>
-
             </td>
           </tr>
 
@@ -132,30 +190,71 @@ function buildEmailHtml(opts: DonationRequestEmailOptions): string {
       </td>
     </tr>
   </table>
-
 </body>
 </html>`;
 }
 
+// ─── Main send function ───────────────────────────────────────────────────────
+
 export async function sendDonationRequestEmail(
   opts: DonationRequestEmailOptions
 ): Promise<boolean> {
-  try {
-    const transporter = createTransporter();
-    const subject = opts.isUrgent
-      ? `🚨 Urgent Blood Donation Request from ${opts.hospitalName}`
-      : `🩸 Donation Request from ${opts.hospitalName}`;
+  const { donorEmail, hospitalName, isUrgent } = opts;
 
-    await transporter.sendMail({
-      from: `"BloodSync" <${process.env.EMAIL_FROM}>`,
-      to: opts.donorEmail,
+  // 1. Validate env
+  const envError = validateEnv();
+  if (envError) {
+    console.error(`${TAG} [send] Aborting — ${envError}`);
+    return false;
+  }
+
+  const subject = isUrgent
+    ? `🚨 Urgent Blood Donation Request from ${hospitalName}`
+    : `🩸 Donation Request from ${hospitalName}`;
+
+  console.log(`${TAG} [send] Preparing email → ${donorEmail} | subject: "${subject}"`);
+  logConfig();
+
+  const transporter = createTransporter();
+
+  // 2. Verify connection before sending
+  try {
+    console.log(`${TAG} [send] Verifying SMTP connection…`);
+    await transporter.verify();
+    console.log(`${TAG} [send] ✓ SMTP connection verified`);
+  } catch (verifyErr) {
+    const e = verifyErr as NodeJS.ErrnoException & { code?: string; responseCode?: number; response?: string };
+    console.error(`${TAG} [send] ✗ SMTP verify failed before send`);
+    console.error(`${TAG} [send]   code: ${e.code ?? 'n/a'} | responseCode: ${e.responseCode ?? 'n/a'}`);
+    console.error(`${TAG} [send]   response: ${e.response ?? e.message}`);
+    return false;
+  }
+
+  // 3. Send
+  try {
+    console.log(`${TAG} [send] Sending to ${donorEmail}…`);
+
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,   // already formatted: "BloodSync <bloodsync.test@gmail.com>"
+      to: donorEmail,
       subject,
       html: buildEmailHtml(opts),
     });
 
+    console.log(`${TAG} [send] ✓ Sent successfully`);
+    console.log(`${TAG} [send]   messageId: ${info.messageId}`);
+    console.log(`${TAG} [send]   response:  ${info.response}`);
+    console.log(`${TAG} [send]   accepted:  ${info.accepted?.join(', ')}`);
+    console.log(`${TAG} [send]   rejected:  ${info.rejected?.join(', ') || 'none'}`);
+
     return true;
-  } catch (err) {
-    console.error(`[emailService] Failed to send to ${opts.donorEmail}:`, err);
+  } catch (sendErr) {
+    const e = sendErr as NodeJS.ErrnoException & { code?: string; responseCode?: number; response?: string };
+    console.error(`${TAG} [send] ✗ sendMail failed to ${donorEmail}`);
+    console.error(`${TAG} [send]   code:         ${e.code ?? 'n/a'}`);
+    console.error(`${TAG} [send]   responseCode: ${e.responseCode ?? 'n/a'}`);
+    console.error(`${TAG} [send]   response:     ${e.response ?? 'n/a'}`);
+    console.error(`${TAG} [send]   message:      ${e.message}`);
     return false;
   }
 }
