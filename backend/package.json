@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "seed:hospitals": "ts-node seeders/hospitalSeeder.ts",
-    "seed:donors": "ts-node seeders/donorSeeder.ts"
+    "seed:donors": "ts-node --transpile-only seeders/donorSeeder.ts"
   },
   "keywords": [
     "blood-donation",

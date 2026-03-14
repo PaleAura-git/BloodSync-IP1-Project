@@ -55,7 +55,7 @@ userSchema.methods.generateAuthToken = function (this: IUser): string {
   const options: SignOptions = { expiresIn: (process.env.JWT_EXPIRE || '7d') as SignOptions['expiresIn'] };
   return jwt.sign(
     { id: this._id, email: this.email, userType: this.userType },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET!,
     options
   );
 };
