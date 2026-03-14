@@ -7,6 +7,7 @@ const TAG = '[emailService]';
 
 const REQUIRED_ENV = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_FROM'] as const;
 
+/** Returns an error message string if any required SMTP env var is missing, otherwise null. */
 function validateEnv(): string | null {
   for (const key of REQUIRED_ENV) {
     if (!process.env[key]) return `Missing required env var: ${key}`;
@@ -14,6 +15,7 @@ function validateEnv(): string | null {
   return null;
 }
 
+/** Logs the current SMTP configuration (password redacted) for debugging. */
 function logConfig(): void {
   console.log(`${TAG} SMTP config:`, {
     host: process.env.EMAIL_HOST,
@@ -27,10 +29,17 @@ function logConfig(): void {
 
 // ─── Transporter ─────────────────────────────────────────────────────────────
 
+/**
+ * Creates a fresh Nodemailer transporter from environment variables.
+ *
+ * Port 465 uses implicit TLS (secure: true); all other ports use STARTTLS
+ * (secure: false). Gmail App Passwords work on both 465 and 587.
+ */
 function createTransporter(): Transporter {
   return nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
     port: Number(process.env.EMAIL_PORT),
+    // Port 465 requires implicit TLS; 587 uses STARTTLS (secure: false)
     secure: Number(process.env.EMAIL_PORT) === 465,
     auth: {
       user: process.env.EMAIL_USER,
@@ -80,6 +89,17 @@ export async function verifyTransporter(): Promise<boolean> {
 
 // ─── HTML template ───────────────────────────────────────────────────────────
 
+/**
+ * Options passed to `buildEmailHtml` and `sendDonationRequestEmail`.
+ *
+ * - `donorEmail`    — recipient address (the donor being contacted)
+ * - `hospitalName`  — displayed prominently in the email header as the sender
+ * - `message`       — free-text body from the hospital (e.g., reason for request)
+ * - `bloodType`     — optional; if provided, rendered as a large badge so the
+ *                     donor can immediately see which type is needed
+ * - `isUrgent`      — controls the accent colour (brighter red) and badge text;
+ *                     also affects the subject line prefix ("🚨 Urgent" vs "🩸")
+ */
 interface DonationRequestEmailOptions {
   donorEmail: string;
   hospitalName: string;
@@ -88,6 +108,24 @@ interface DonationRequestEmailOptions {
   isUrgent: boolean;
 }
 
+/**
+ * Renders the HTML email body for a donation request.
+ *
+ * Template structure:
+ * 1. **Header** — gradient banner with "BloodSync" wordmark and urgency badge.
+ * 2. **From block** — highlighted panel showing the requesting hospital's name.
+ * 3. **Blood type badge** — large, visually prominent type indicator (only when
+ *    `bloodType` is provided).
+ * 4. **Message** — the hospital's free-text reason for the request.
+ * 5. **CTA** — "Respond to Request" button (href placeholder; wired up via app).
+ * 6. **Footer** — opt-out notice and copyright.
+ *
+ * Urgent requests use a darker red accent (`#c0392b`) vs. the standard red
+ * (`#e74c3c`) to create a visual distinction in the donor's inbox.
+ *
+ * @param opts - Email content and presentation options.
+ * @returns Fully-formed HTML string ready to pass to `transporter.sendMail`.
+ */
 function buildEmailHtml(opts: DonationRequestEmailOptions): string {
   const { hospitalName, message, bloodType, isUrgent } = opts;
   const accentColor = isUrgent ? '#c0392b' : '#e74c3c';
@@ -196,6 +234,34 @@ function buildEmailHtml(opts: DonationRequestEmailOptions): string {
 
 // ─── Main send function ───────────────────────────────────────────────────────
 
+/**
+ * Sends an HTML donation-request email to a single donor.
+ *
+ * ## Flow
+ * 1. Validates that all required SMTP environment variables are present.
+ * 2. Opens and verifies the SMTP connection before attempting to send — this
+ *    surfaces authentication or network errors early with actionable log output.
+ * 3. Sends the rendered HTML email via `transporter.sendMail`.
+ * 4. Logs delivery metadata (messageId, accepted/rejected addresses).
+ *
+ * This function is intentionally non-throwing: it returns `false` on any
+ * failure so that callers (`sendNotification`, `createUrgentRequest`) can use
+ * `Promise.all` across a batch of donors without aborting on a single failure.
+ *
+ * @param opts - Recipient address, hospital name, message body, optional blood
+ *   type badge, and urgency flag. See `DonationRequestEmailOptions`.
+ * @returns `true` if the email was accepted by the SMTP server, `false` if
+ *   env validation, connection verification, or sending failed.
+ *
+ * @example
+ * const sent = await sendDonationRequestEmail({
+ *   donorEmail: 'donor@example.com',
+ *   hospitalName: 'Royal Hospital',
+ *   message: 'We urgently need O- blood for emergency surgery.',
+ *   bloodType: 'O-',
+ *   isUrgent: true,
+ * });
+ */
 export async function sendDonationRequestEmail(
   opts: DonationRequestEmailOptions
 ): Promise<boolean> {

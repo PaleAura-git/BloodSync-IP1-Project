@@ -15,6 +15,31 @@ export interface ReadNotificationRequest extends AuthRequest {
   params: { id: string };
 }
 
+/**
+ * POST /api/notifications/send
+ *
+ * Sends a donation request notification to a list of donors simultaneously,
+ * via email and in-app channels.
+ *
+ * ## Flow
+ * 1. Resolves the hospital profile for the authenticated user.
+ * 2. Fetches all donor documents for the provided `donorIds`.
+ * 3. Sends emails concurrently via `sendDonationRequestEmail`. Individual
+ *    email failures do not abort the batch — the remaining sends continue.
+ * 4. Creates a single Notification document recording the message, delivery
+ *    counts per channel, and which donors were targeted.
+ *
+ * @auth Required — Bearer JWT, userType must be HOSPITAL.
+ * @body `{ donorIds: string[], message: string, notificationType: 'GENERAL' | 'URGENT_REQUEST',
+ *   bloodTypeNeeded?: BloodType, unitsNeeded?: number }`
+ * @returns 201 `{ success, data: INotification, summary: { totalDonors, email, inApp } }`
+ * @returns 400 if `donorIds`, `message`, or `notificationType` is missing.
+ * @returns 404 if the hospital profile or any donor IDs are not found.
+ *
+ * Side effects:
+ * - Sends emails to each donor (failures are counted, not thrown).
+ * - Persists a Notification document with per-channel delivery statistics.
+ */
 // POST /api/notifications/send  (HOSPITAL only)
 export const sendNotification = async (
   req: SendNotificationRequest,
@@ -86,6 +111,18 @@ export const sendNotification = async (
   });
 };
 
+/**
+ * GET /api/notifications/donor
+ *
+ * Returns all notifications sent to the authenticated donor, sorted by most
+ * recent first. Each notification is populated with hospital contact info.
+ *
+ * @auth Required — Bearer JWT, userType must be DONOR.
+ * @returns 200 `{ success, count: number, data: INotification[] }`
+ *   Each notification includes populated `hospitalId` with: hospitalName,
+ *   address, neighborhood, phone.
+ * @returns 404 if the authenticated user has no donor profile.
+ */
 // GET /api/notifications/donor  (DONOR only)
 export const getDonorNotifications = async (
   req: AuthRequest,
@@ -104,6 +141,16 @@ export const getDonorNotifications = async (
   res.json({ success: true, count: notifications.length, data: notifications });
 };
 
+/**
+ * GET /api/notifications/hospital
+ *
+ * Returns all notifications sent by the authenticated hospital, sorted by
+ * most recent first.
+ *
+ * @auth Required — Bearer JWT, userType must be HOSPITAL.
+ * @returns 200 `{ success, count: number, data: INotification[] }`
+ * @returns 404 if the authenticated user has no hospital profile.
+ */
 // GET /api/notifications/hospital  (HOSPITAL only)
 export const getHospitalNotifications = async (
   req: AuthRequest,
@@ -121,6 +168,17 @@ export const getHospitalNotifications = async (
   res.json({ success: true, count: notifications.length, data: notifications });
 };
 
+/**
+ * PUT /api/notifications/:id/read
+ *
+ * Marks a notification as read. Intended to be called by the donor's app
+ * when they open a notification, to support unread-count badges in the UI.
+ *
+ * @auth Required — Bearer JWT (caller should be the target donor).
+ * @param id - MongoDB ObjectId of the notification.
+ * @returns 200 `{ success, data: INotification }` with `isRead: true`.
+ * @returns 404 if no notification with that ID exists.
+ */
 // PUT /api/notifications/:id/read
 export const markAsRead = async (
   req: ReadNotificationRequest,

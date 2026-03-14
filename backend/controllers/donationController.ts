@@ -18,6 +18,31 @@ export interface CompleteDonationRequest extends DonationParamsRequest {
   body: { notes?: string };
 }
 
+/**
+ * Minimum rest period between whole-blood donations (56 days = 8 weeks).
+ * Applied here as a server-side guard before creating a scheduled donation.
+ */
+const COOLDOWN_MS = 56 * 24 * 60 * 60 * 1000;
+
+/**
+ * POST /api/donations
+ *
+ * Schedules a future donation appointment — the hospital records that a donor
+ * has agreed to come in. The donation status starts as SCHEDULED and must be
+ * advanced to COMPLETED by calling PUT /api/donations/:id/complete.
+ *
+ * The endpoint enforces the 56-day cooldown: if the donor's last completed
+ * donation is within the cooldown window the request is rejected, and the
+ * response includes the calculated `nextEligibleDate` for the frontend to display.
+ *
+ * @auth Required — Bearer JWT, userType must be HOSPITAL.
+ * @body `{ donorId: string, donationDate: string (ISO), bloodType: BloodType,
+ *   unitsDonated?: number, notificationId?: string, notes?: string }`
+ * @returns 201 `{ success, data: IDonation }`
+ * @returns 400 if required fields are missing, donor is ineligible, or donor
+ *   is within the 56-day cooldown period (includes `nextEligibleDate` in response).
+ * @returns 404 if hospital or donor profile is not found.
+ */
 // POST /api/donations  (HOSPITAL only)
 // Schedules a donation — hospital records that a donor is coming in
 export const scheduleDonation = async (
@@ -51,7 +76,6 @@ export const scheduleDonation = async (
       return;
     }
 
-    const COOLDOWN_MS = 56 * 24 * 60 * 60 * 1000;
     if (donor.lastDonationDate && Date.now() - donor.lastDonationDate.getTime() < COOLDOWN_MS) {
       const nextEligible = new Date(donor.lastDonationDate.getTime() + COOLDOWN_MS);
       res.status(400).json({
@@ -78,6 +102,26 @@ export const scheduleDonation = async (
   }
 };
 
+/**
+ * PUT /api/donations/:id/complete
+ *
+ * Marks a scheduled donation as completed and records the confirmation
+ * timestamp. This is the critical step that updates `donor.lastDonationDate`,
+ * which starts the 56-day cooldown and feeds back into future match scores.
+ *
+ * Only the hospital that created the donation record can complete it.
+ *
+ * @auth Required — Bearer JWT, userType must be HOSPITAL.
+ * @param id - MongoDB ObjectId of the donation.
+ * @body `{ notes?: string }` — optional completion notes.
+ * @returns 200 `{ success, data: IDonation }` with status `COMPLETED`.
+ * @returns 400 if the donation is not in SCHEDULED status.
+ * @returns 404 if the donation is not found or belongs to a different hospital.
+ *
+ * Side effect: Updates `donor.lastDonationDate` to the donation's recorded
+ * date, triggering the 56-day cooldown and reducing the donor's match score
+ * recency component in future searches.
+ */
 // PUT /api/donations/:id/complete  (HOSPITAL only)
 // Marks donation complete and updates donor's lastDonationDate — triggers cooldown
 export const completeDonation = async (
@@ -119,6 +163,23 @@ export const completeDonation = async (
   }
 };
 
+/**
+ * PUT /api/donations/:id/cancel
+ *
+ * Cancels a SCHEDULED donation. Both the hospital that created the record
+ * and the donor who was scheduled can cancel. Completed donations cannot
+ * be cancelled — they are permanent records.
+ *
+ * Authorization is enforced by scoping the query: hospitals filter by
+ * `hospitalId`, donors filter by `donorId`, so each party can only cancel
+ * their own relevant records.
+ *
+ * @auth Required — Bearer JWT (HOSPITAL or DONOR).
+ * @param id - MongoDB ObjectId of the donation.
+ * @returns 200 `{ success, data: IDonation }` with status `CANCELLED`.
+ * @returns 400 if the donation status is already COMPLETED.
+ * @returns 404 if the donation is not found or does not belong to the caller.
+ */
 // PUT /api/donations/:id/cancel  (HOSPITAL or owning DONOR)
 export const cancelDonation = async (
   req: DonationParamsRequest,
@@ -129,6 +190,7 @@ export const cancelDonation = async (
     const userType = req.user!.userType;
     let query: Record<string, unknown> = { _id: req.params.id };
 
+    // Scope query by the caller's profile to prevent cross-user cancellations
     if (userType === 'HOSPITAL') {
       const hospital = await Hospital.findOne({ userId: req.user!._id });
       if (!hospital) {
@@ -165,6 +227,20 @@ export const cancelDonation = async (
   }
 };
 
+/**
+ * GET /api/donations/my
+ *
+ * Returns the authenticated donor's complete donation history with aggregate
+ * statistics. Results are sorted by donation date descending (most recent first).
+ * Each donation is populated with the hospital's name, address, neighborhood,
+ * and phone.
+ *
+ * @auth Required — Bearer JWT, userType must be DONOR.
+ * @returns 200 `{ success, stats, data: IDonation[] }`
+ *   `stats` includes: total, completed, scheduled, cancelled counts,
+ *   lastDonationDate, and nextEligibleDate (lastDonationDate + 56 days).
+ * @returns 404 if the authenticated user has no donor profile.
+ */
 // GET /api/donations/my  (DONOR only)
 export const getDonorHistory = async (
   req: AuthRequest,
@@ -188,6 +264,7 @@ export const getDonorHistory = async (
       scheduled: donations.filter((d) => d.status === 'SCHEDULED').length,
       cancelled: donations.filter((d) => d.status === 'CANCELLED').length,
       lastDonationDate: donor.lastDonationDate,
+      // 56 days = standard whole-blood donation cooldown period
       nextEligibleDate: donor.lastDonationDate
         ? new Date(donor.lastDonationDate.getTime() + 56 * 24 * 60 * 60 * 1000)
         : null,
@@ -199,6 +276,19 @@ export const getDonorHistory = async (
   }
 };
 
+/**
+ * GET /api/donations/hospital
+ *
+ * Returns all donation records for the authenticated hospital, optionally
+ * filtered by status. Each donation is populated with the donor's name,
+ * blood type, phone, email, and neighborhood.
+ *
+ * @auth Required — Bearer JWT, userType must be HOSPITAL.
+ * @query `status` — optional filter: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED'
+ *   (case-insensitive; converted to uppercase before querying).
+ * @returns 200 `{ success, count: number, data: IDonation[] }`
+ * @returns 404 if the authenticated user has no hospital profile.
+ */
 // GET /api/donations/hospital  (HOSPITAL only)
 export const getHospitalDonations = async (
   req: AuthRequest,

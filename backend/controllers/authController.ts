@@ -3,6 +3,19 @@ import { validationResult } from 'express-validator';
 import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
 
+/**
+ * POST /api/auth/register
+ *
+ * Creates a new user account and returns a JWT for immediate login.
+ * No email verification is required — the token is usable right away.
+ *
+ * @auth None — public endpoint.
+ * @body `{ email: string, password: string, userType: 'DONOR' | 'HOSPITAL' }`
+ * @returns 201 `{ success, token, user: { id, email, userType, isActive, createdAt } }`
+ * @returns 400 if validation fails or the email is already registered.
+ *
+ * Note: Password is hashed by the User pre-save hook before being stored.
+ */
 export const register = async (
   req: Request,
   res: Response,
@@ -46,6 +59,19 @@ export const register = async (
   }
 };
 
+/**
+ * POST /api/auth/login
+ *
+ * Authenticates a user by email/password and returns a JWT.
+ * Both a non-existent email and a wrong password return 401 with the same
+ * generic message to prevent user enumeration.
+ *
+ * @auth None — public endpoint.
+ * @body `{ email: string, password: string }`
+ * @returns 200 `{ success, token, user: { id, email, userType, isActive, createdAt } }`
+ * @returns 400 if email or password is missing from the request body.
+ * @returns 401 if credentials are invalid.
+ */
 export const login = async (
   req: Request,
   res: Response,
@@ -89,6 +115,15 @@ export const login = async (
   }
 };
 
+/**
+ * GET /api/auth/me
+ *
+ * Returns the authenticated user's account record. The user object is
+ * attached to the request by the `protect` middleware before this handler runs.
+ *
+ * @auth Required — Bearer JWT (any user type).
+ * @returns 200 `{ success, user: IUser }`
+ */
 export const getMe = async (
   req: AuthRequest,
   res: Response,

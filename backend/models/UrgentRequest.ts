@@ -1,14 +1,43 @@
 import mongoose, { Document, Schema, Model } from 'mongoose';
 import { UrgencyLevel, UrgentRequestStatus } from '../types/urgentRequest';
 
+/**
+ * Represents a time-sensitive blood request broadcast by a hospital.
+ *
+ * When created, all compatible eligible donors are notified immediately via
+ * email and in-app. The request auto-expires after 24 hours and is cleaned up
+ * by the scheduled cron job, which transitions status to EXPIRED.
+ */
 export interface IUrgentRequest extends Document {
   hospitalId: mongoose.Types.ObjectId;
+  /** The blood type the hospital needs. Compatible donor types are resolved at query time. */
   bloodType: string;
   unitsNeeded: number;
+  /**
+   * Triage classification:
+   * - `HIGH`     — needed within hours; serious but not immediately life-threatening.
+   * - `CRITICAL` — needed immediately; life-threatening situation.
+   *
+   * In `getActiveRequests`, CRITICAL sorts before HIGH because "C" < "H"
+   * alphabetically and the query uses ascending sort on this field.
+   */
   urgencyLevel: UrgencyLevel;
+  /** Optional clinical context to include in donor notification emails. */
   reason?: string;
+  /**
+   * Absolute expiry timestamp. Set to 24 hours from creation time.
+   * Requests past this date are excluded from `getActiveRequests` and will
+   * be transitioned to EXPIRED by the cron job.
+   */
   expiresAt: Date;
+  /**
+   * Lifecycle status:
+   * - `ACTIVE`    — open; visible in the public active requests feed.
+   * - `FULFILLED` — hospital received sufficient donations; manually set.
+   * - `EXPIRED`   — past `expiresAt`; set by the cron job.
+   */
   status: UrgentRequestStatus;
+  /** Count of donors notified at creation time. Informational only. */
   notifiedDonorCount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -57,6 +86,7 @@ const urgentRequestSchema = new Schema<IUrgentRequest>(
   { timestamps: true }
 );
 
+// expiresAt index supports the cron job's expiry sweep and the active-requests filter
 urgentRequestSchema.index({ hospitalId: 1 });
 urgentRequestSchema.index({ status: 1 });
 urgentRequestSchema.index({ expiresAt: 1 });
