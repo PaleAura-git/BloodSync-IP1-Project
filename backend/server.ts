@@ -12,6 +12,8 @@ import notificationRoutes from './routes/notification';
 import donationRoutes from './routes/donation';
 import urgentRequestRoutes from './routes/urgentRequest';
 import { startExpireUrgentRequestsJob } from './jobs/expireUrgentRequests';
+import { initializeCronJobs } from './jobs/unblockDonors';
+import adminRoutes from './routes/admin';
 
 const app: Application = express();
 
@@ -20,6 +22,7 @@ connectDB();
 
 // Start background jobs
 startExpireUrgentRequestsJob();
+initializeCronJobs();
 
 // Middleware
 app.use(cors());
@@ -39,6 +42,7 @@ app.use('/api/search', searchRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/donations', donationRoutes);
 app.use('/api/urgent-requests', urgentRequestRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
