@@ -1,18 +1,17 @@
 import { Router } from 'express';
-import { body } from 'express-validator';
 import { register, login, getMe } from '../controllers/authController';
 import { protect, AuthRequest } from '../middleware/auth';
+import { registerValidation, loginValidation } from '../middleware/validators/authValidator';
 
 const router = Router();
 
-const registerValidation = [
-  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  body('userType').isIn(['DONOR', 'HOSPITAL']).withMessage('userType must be DONOR or HOSPITAL'),
-];
-
+// POST /api/auth/register — create account and receive JWT
 router.post('/register', registerValidation, register);
-router.post('/login', login);
+
+// POST /api/auth/login — authenticate and receive JWT
+router.post('/login', loginValidation, login);
+
+// GET /api/auth/me — return own account details (auth required)
 router.get('/me', protect, (req, res, next) => getMe(req as AuthRequest, res, next));
 
 export default router;

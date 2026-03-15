@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { protect, AuthRequest } from '../middleware/auth';
 import {
   sendNotification,
@@ -8,54 +8,57 @@ import {
   SendNotificationRequest,
   ReadNotificationRequest,
 } from '../controllers/notificationController';
+import { sendNotificationValidation } from '../middleware/validators/notificationValidator';
 
 const router = Router();
 
-function hospitalOnly(req: AuthRequest, res: Response, next: NextFunction): void {
-  if (req.user?.userType !== 'HOSPITAL') {
+/** Helper: type-safe bridge from Express Request to AuthRequest for controller calls. */
+const auth =
+  (handler: (req: AuthRequest, res: Response, next: NextFunction) => Promise<void>) =>
+  (req: Request, res: Response, next: NextFunction): void => {
+    handler(req as AuthRequest, res, next);
+  };
+
+/** Restricts a route to authenticated HOSPITAL accounts. */
+function hospitalOnly(req: Request, res: Response, next: NextFunction): void {
+  if ((req as AuthRequest).user?.userType !== 'HOSPITAL') {
     res.status(403).json({ success: false, message: 'Access restricted to hospitals' });
     return;
   }
   next();
 }
 
-function donorOnly(req: AuthRequest, res: Response, next: NextFunction): void {
-  if (req.user?.userType !== 'DONOR') {
+/** Restricts a route to authenticated DONOR accounts. */
+function donorOnly(req: Request, res: Response, next: NextFunction): void {
+  if ((req as AuthRequest).user?.userType !== 'DONOR') {
     res.status(403).json({ success: false, message: 'Access restricted to donors' });
     return;
   }
   next();
 }
 
-// POST /api/notifications/send
+// POST /api/notifications/send — broadcast to donor list (HOSPITAL only)
 router.post(
   '/send',
   protect,
   hospitalOnly,
-  (req, res) => sendNotification(req as SendNotificationRequest, res)
+  sendNotificationValidation,
+  (req: Request, res: Response, next: NextFunction) =>
+    sendNotification(req as SendNotificationRequest, res, next)
 );
 
-// GET /api/notifications/donor
-router.get(
-  '/donor',
-  protect,
-  donorOnly,
-  (req, res) => getDonorNotifications(req as AuthRequest, res)
-);
+// GET /api/notifications/donor — donor's own inbox (DONOR only)
+router.get('/donor', protect, donorOnly, auth(getDonorNotifications));
 
-// GET /api/notifications/hospital
-router.get(
-  '/hospital',
-  protect,
-  hospitalOnly,
-  (req, res) => getHospitalNotifications(req as AuthRequest, res)
-);
+// GET /api/notifications/hospital — hospital's sent notifications (HOSPITAL only)
+router.get('/hospital', protect, hospitalOnly, auth(getHospitalNotifications));
 
-// PUT /api/notifications/:id/read
+// PUT /api/notifications/:id/read — mark a notification as read
 router.put(
   '/:id/read',
   protect,
-  (req, res) => markAsRead(req as ReadNotificationRequest, res)
+  (req: Request, res: Response, next: NextFunction) =>
+    markAsRead(req as ReadNotificationRequest, res, next)
 );
 
 export default router;

@@ -1,4 +1,5 @@
-import { Response } from 'express';
+import { Response, NextFunction } from 'express';
+import { validationResult } from 'express-validator';
 import Donor from '../models/Donor';
 import { SearchCriteria, MatchScore } from '../types/matching';
 import { getCompatibleBloodTypes } from '../utils/bloodCompatibility';
@@ -14,9 +15,9 @@ export interface RevealContactRequest extends AuthRequest {
 }
 
 /**
- * Minimum rest period between whole-blood donations per WHO/AABB guidelines.
- * 56 days = 8 weeks. Donors who donated within this window are excluded from
- * search results to protect donor health and ensure blood quality.
+ * Minimum rest period between whole-blood donations (56 days = 8 weeks).
+ * Donors who donated within this window are excluded from search results
+ * to protect donor health and ensure blood quality.
  */
 const COOLDOWN_MS = 56 * 24 * 60 * 60 * 1000;
 
@@ -34,49 +35,58 @@ const COOLDOWN_MS = 56 * 24 * 60 * 60 * 1000;
  *    proximity, recency, eligibility score, universal donor bonus).
  * 4. Returns results sorted by score descending.
  *
- * @auth Required — Bearer JWT (HOSPITAL recommended; any user type accepted).
+ * @auth Required — Bearer JWT, userType must be HOSPITAL.
  * @body `{ bloodType: BloodType, urgency: 'URGENT' | 'STANDARD', neighborhood?: string }`
  * @returns 200 `{ success, count: number, data: MatchScore[] }`
- *   Each `MatchScore` contains the full donor document and their numeric score.
- * @returns 400 if `bloodType` or `urgency` is missing.
+ * @returns 400 if validation fails.
  */
 export const searchDonors = async (
   req: SearchDonorsRequest,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
-  const { bloodType, neighborhood, urgency } = req.body;
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ success: false, message: errors.array()[0].msg });
+      return;
+    }
 
-  if (!bloodType || !urgency) {
-    res.status(400).json({ success: false, message: 'bloodType and urgency are required' });
-    return;
+    const { bloodType, neighborhood, urgency } = req.body;
+
+    const compatibleTypes = getCompatibleBloodTypes(bloodType);
+    const cooldownCutoff = new Date(Date.now() - COOLDOWN_MS);
+
+    const donors = await Donor.find({
+      bloodType: { $in: compatibleTypes },
+      eligibilityStatus: 'ELIGIBLE',
+      availabilityStatus: true,
+      // Include donors who have never donated OR who are past the cooldown cutoff
+      $or: [
+        { lastDonationDate: null },
+        { lastDonationDate: { $lt: cooldownCutoff } },
+      ],
+    });
+
+    const scored: MatchScore[] = donors
+      .map((donor) => ({
+        donor,
+        score: calculateMatchScore(donor, { bloodType, neighborhood, urgency }),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    console.log(
+      `[INFO] ${new Date().toISOString()} searchDonors — bloodType=${bloodType} urgency=${urgency} results=${scored.length}`
+    );
+
+    res.json({ success: true, count: scored.length, data: scored });
+  } catch (err) {
+    next(err);
   }
-
-  const compatibleTypes = getCompatibleBloodTypes(bloodType);
-  const cooldownCutoff = new Date(Date.now() - COOLDOWN_MS);
-
-  const donors = await Donor.find({
-    bloodType: { $in: compatibleTypes },
-    eligibilityStatus: 'ELIGIBLE',
-    availabilityStatus: true,
-    // Include donors who have never donated OR who are past the cooldown cutoff
-    $or: [
-      { lastDonationDate: null },
-      { lastDonationDate: { $lt: cooldownCutoff } },
-    ],
-  });
-
-  const scored: MatchScore[] = donors
-    .map((donor) => ({
-      donor,
-      score: calculateMatchScore(donor, { bloodType, neighborhood, urgency }),
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  res.json({ success: true, count: scored.length, data: scored });
 };
 
 /**
- * GET /api/search/donors/:donorId/contact
+ * POST /api/search/reveal-contact/:donorId
  *
  * Reveals the full contact details of a specific donor to the requesting
  * hospital. Contact information (phone, email) is hidden in search results
@@ -86,30 +96,39 @@ export const searchDonors = async (
  * made a deliberate decision to reach out, rather than having their details
  * exposed in bulk search results.
  *
- * @auth Required — Bearer JWT, userType should be HOSPITAL.
+ * @auth Required — Bearer JWT, userType must be HOSPITAL.
  * @param donorId - MongoDB ObjectId of the donor.
  * @returns 200 `{ success, data: { fullName, phone, email, neighborhood, bloodType } }`
  * @returns 404 if no donor with that ID exists.
  */
 export const revealContact = async (
   req: RevealContactRequest,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
-  const donor = await Donor.findById(req.params.donorId);
+  try {
+    const donor = await Donor.findById(req.params.donorId);
 
-  if (!donor) {
-    res.status(404).json({ success: false, message: 'Donor not found' });
-    return;
+    if (!donor) {
+      res.status(404).json({ success: false, message: 'Donor not found' });
+      return;
+    }
+
+    console.log(
+      `[INFO] ${new Date().toISOString()} revealContact — donorId=${req.params.donorId} by hospitalUserId=${req.user?._id}`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        fullName: donor.fullName,
+        phone: donor.phone,
+        email: donor.email,
+        neighborhood: donor.neighborhood,
+        bloodType: donor.bloodType,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
-
-  res.json({
-    success: true,
-    data: {
-      fullName: donor.fullName,
-      phone: donor.phone,
-      email: donor.email,
-      neighborhood: donor.neighborhood,
-      bloodType: donor.bloodType,
-    },
-  });
 };
