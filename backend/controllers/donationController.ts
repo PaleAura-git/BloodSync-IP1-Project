@@ -143,7 +143,7 @@ export const completeDonation = async (
     }
 
     if (donation.status !== 'SCHEDULED') {
-      res.status(400).json({ success: false, message: `Cannot complete a donation with status: ${donation.status}` });
+      res.status(400).json({ success: false, message: `Cannot complete a donatioin with status: ${donation.status}` });
       return;
     }
 
