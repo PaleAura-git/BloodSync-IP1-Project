@@ -7,6 +7,7 @@ import Hospital from '../models/Hospital';
 import { AuthRequest } from '../middleware/auth';
 import { SendNotificationBody } from '../types/notification';
 import { sendDonationRequestEmail } from '../services/emailService';
+import { transformNotification } from '../utils/transforms';
 
 export interface SendNotificationRequest extends AuthRequest {
   body: SendNotificationBody;
@@ -152,7 +153,7 @@ export const getDonorNotifications = async (
       .populate('hospitalId', 'hospitalName address neighborhood phone')
       .sort({ sentAt: -1 });
 
-    res.json({ success: true, count: notifications.length, data: notifications });
+    res.json({ success: true, count: notifications.length, data: notifications.map(transformNotification) });
   } catch (err) {
     next(err);
   }
@@ -184,7 +185,7 @@ export const getHospitalNotifications = async (
     const notifications = await Notification.find({ hospitalId: hospital._id })
       .sort({ sentAt: -1 });
 
-    res.json({ success: true, count: notifications.length, data: notifications });
+    res.json({ success: true, count: notifications.length, data: notifications.map(transformNotification) });
   } catch (err) {
     next(err);
   }

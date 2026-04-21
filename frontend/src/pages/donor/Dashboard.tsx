@@ -1,248 +1,135 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { AlertTriangle, ChevronRight } from 'lucide-react'
-import { Badge } from '../../components/ui/Badge'
-import { Button } from '../../components/ui/Button'
+import { useNavigate } from 'react-router-dom'
+import { donorApi, urgentRequestApi } from '../../api'
 import { PageSpinner } from '../../components/ui/Spinner'
-import { donorApi, urgentRequestApi, donationApi } from '../../api'
-import { useAuth } from '../../contexts/AuthContext'
-import type { DonorProfile, UrgentRequest, Donation } from '../../types'
-import { formatDistanceToNow, format } from '../../utils/date'
+import { cn } from '../../utils/cn'
+import type { DonorProfile, UrgentRequest } from '../../types'
+import { timeAgo } from '../../utils/date'
 
-function urgencyVariant(level: string): 'red' | 'amber' | 'dim' {
-  if (level === 'critical') return 'red'
-  if (level === 'urgent') return 'amber'
-  return 'dim'
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-4 border-b border-line py-1">
+      <dt className="text-faint w-24 shrink-0 text-[13px]">{k}</dt>
+      <dd className="text-[13px]">{v}</dd>
+    </div>
+  )
 }
 
 export function DonorDashboard() {
-  const { user } = useAuth()
   const navigate = useNavigate()
-  const [donor, setDonor] = useState<DonorProfile | null>(null)
+  const [profile, setProfile] = useState<DonorProfile | null>(null)
   const [requests, setRequests] = useState<UrgentRequest[]>([])
-  const [donations, setDonations] = useState<Donation[]>([])
+  const [available, setAvailable] = useState(true)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [dRes, rRes, donRes] = await Promise.all([
-          donorApi.getProfile().catch(() => null),
-          urgentRequestApi.getActive().catch(() => ({ data: { data: [] } })),
-          donationApi.getMyHistory().catch(() => ({ data: { data: [] } })),
-        ])
-        if (dRes) setDonor(dRes.data.data || dRes.data.donor || dRes.data)
-        setRequests(rRes.data.data || rRes.data.requests || [])
-        setDonations((donRes.data.data || donRes.data.donations || []).slice(0, 5))
-      } finally {
-        setLoading(false)
+    Promise.all([
+      donorApi.getProfile(),
+      urgentRequestApi.getActive(),
+    ]).then(([pRes, rRes]) => {
+      const p = pRes.data.data || pRes.data
+      setProfile(p)
+      setAvailable(p.isAvailable)
+      const allReqs: UrgentRequest[] = rRes.data.data || rRes.data || []
+      // Show requests where this donor's blood type is compatible (can donate to)
+      const compatible: Record<string, string[]> = {
+        'O-':  ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'],
+        'O+':  ['O+', 'A+', 'B+', 'AB+'],
+        'A-':  ['A-', 'A+', 'AB-', 'AB+'],
+        'A+':  ['A+', 'AB+'],
+        'B-':  ['B-', 'B+', 'AB-', 'AB+'],
+        'B+':  ['B+', 'AB+'],
+        'AB-': ['AB-', 'AB+'],
+        'AB+': ['AB+'],
       }
-    }
-    load()
+      const canDonateTo = compatible[p.bloodType] ?? [p.bloodType]
+      setRequests(allReqs.filter((r: UrgentRequest) => canDonateTo.includes(r.bloodType)))
+    }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <PageSpinner />
-
-  const firstName = donor?.fullName?.split(' ')[0] || user?.email?.split('@')[0] || 'there'
-  const quizDone = donor?.quizCompleted ?? false
-
-  const daysUntilAvailable = () => {
-    if (!donor?.cooldownUntil) return null
-    const diff = new Date(donor.cooldownUntil).getTime() - Date.now()
-    if (diff <= 0) return null
-    return Math.ceil(diff / (1000 * 60 * 60 * 24))
+  const toggleAvail = async () => {
+    try {
+      await donorApi.toggleAvailability()
+      setAvailable(a => !a)
+    } catch {}
   }
-  const cooldownDays = daysUntilAvailable()
+
+  if (loading) return <PageSpinner/>
+
+  const daysSinceLast = profile?.lastDonationDate
+    ? Math.floor((Date.now() - new Date(profile.lastDonationDate).getTime()) / 86400000)
+    : null
 
   return (
-    <div className="flex flex-col gap-7">
-      {/* Welcome bar */}
-      <div className="flex items-center gap-3">
-        <h1 className="font-heading font-semibold text-[20px] text-text-primary">
-          Welcome back, {firstName}
-        </h1>
-        {donor?.bloodType && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-mono font-semibold text-white bg-red-accent">
-            {donor.bloodType}
+    <div className="animate-fade-in">
+      <h1 className="text-[18px] font-semibold text-ink mb-8">Dashboard</h1>
+
+      <dl className="text-[13px] leading-[26px] mb-10">
+        <Row k="Status" v={
+          <span className={cn('text-ink', profile?.isEligible ? '' : 'text-muted')}>
+            {profile?.isEligible ? 'Eligible to donate' : profile?.eligibilityReason || 'Not eligible'}
           </span>
+        }/>
+        <Row k="Type" v={<span className="text-ink">{profile?.bloodType}</span>}/>
+        {profile?.lastDonationDate && (
+          <Row k="Last" v={
+            <span className="text-ink">
+              {new Date(profile.lastDonationDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+              <span className="text-faint"> · {daysSinceLast} days ago</span>
+            </span>
+          }/>
         )}
-      </div>
-
-      {/* Quiz alert banner — always shown, never replaces content below */}
-      {!quizDone && (
-        <div
-          className="flex items-center justify-between px-4 py-3 rounded-md"
-          style={{ backgroundColor: '#141414', borderLeft: '3px solid #F59E0B' }}
-        >
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle size={14} className="text-amber-accent flex-shrink-0" />
-            <p className="text-[13px] text-text-secondary">
-              Complete your eligibility screening to start receiving donation requests.
-            </p>
-          </div>
-          <button
-            onClick={() => navigate('/donor/quiz')}
-            className="ml-4 flex-shrink-0 px-3 py-1.5 rounded text-[12px] font-semibold text-white transition-all duration-150"
-            style={{ backgroundColor: '#E53935' }}
-            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#C62828'}
-            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#E53935'}
-          >
-            Take Quiz
+        <Row k="Donations" v={<span className="text-ink tabular-nums">{profile?.totalDonations ?? 0}</span>}/>
+        <Row k="Available" v={
+          <button onClick={toggleAvail}
+            className="text-ink hover:text-accent transition-colors inline-flex items-center gap-2">
+            <span className={cn('h-1.5 w-1.5 rounded-full', available ? 'bg-accent' : 'bg-faint')}/>
+            {available ? 'yes' : 'no'}
+            <span className="text-faint text-[11px]">— change</span>
           </button>
+        }/>
+      </dl>
+
+      <section className="mb-10">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-[13px] font-medium text-ink">
+            Open requests matching {profile?.bloodType}
+          </h2>
+          <span className="text-[12px] text-faint tabular-nums">
+            {requests.length} match{requests.length === 1 ? '' : 'es'}
+          </span>
         </div>
-      )}
 
-      {/* Stat row — always visible, three separate blocks */}
-      <div className="flex gap-3">
-        <StatBlock
-          label="Eligibility"
-          value={!quizDone ? 'Pending' : donor?.isEligible ? 'Eligible' : 'Not eligible'}
-          valueColor={!quizDone ? '#555' : donor?.isEligible ? '#2EC486' : '#E53935'}
-        />
-        <StatBlock
-          label="Cooldown"
-          value={!quizDone ? 'Complete quiz first' : cooldownDays ? `${cooldownDays}d remaining` : 'Available now'}
-          valueColor={!quizDone ? '#555' : cooldownDays ? '#F59E0B' : '#2EC486'}
-        />
-        <StatBlock
-          label="Total Donations"
-          value={String(donor?.totalDonations ?? 0)}
-          valueColor="#EFEFEF"
-        />
-      </div>
-
-      {/* Urgent Requests */}
-      <section>
-        <p className="text-[11px] font-medium text-text-tertiary uppercase tracking-wide mb-2">
-          Urgent Requests
-        </p>
-        <div className="rounded-md overflow-hidden" style={{ backgroundColor: '#111111' }}>
-          {requests.length === 0 ? (
-            <div className="px-4 py-4">
-              <p className="text-text-tertiary text-[13px]">No urgent requests right now.</p>
-              <p className="text-[12px] mt-0.5" style={{ color: '#444' }}>
-                You'll see matching requests here once hospitals post emergencies.
-              </p>
-            </div>
-          ) : (
-            requests.map((req, i) => {
-              const hosp = typeof req.hospital === 'object' ? req.hospital : null
+        {requests.length === 0 ? (
+          <div className="py-8 text-center text-[12px] text-faint border-t border-b border-line">
+            No open requests need {profile?.bloodType} right now. You'll be notified when that changes.
+          </div>
+        ) : (
+          <div className="border-t border-line">
+            {requests.map(r => {
+              const age = timeAgo(r.createdAt)
+              const matched = r.respondedDonors?.length ?? 0
+              const critical = r.urgencyLevel === 'critical'
+              const hosp = typeof r.hospital === 'object' ? r.hospital : null
               return (
-                <div
-                  key={req._id}
-                  className={`flex items-center gap-3 px-4 py-3 hover:bg-bg-hover transition-all duration-150 ${
-                    i !== requests.length - 1 ? 'border-b border-bg-border' : ''
-                  }`}
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-accent flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] text-text-primary truncate">
-                      {hosp?.hospitalName || 'Hospital'}
-                    </p>
-                    <p className="text-[12px] text-text-tertiary">
-                      {hosp?.location?.area || ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Badge variant={urgencyVariant(req.urgencyLevel)}>
-                      {req.bloodType} · {req.unitsNeeded}u
-                    </Badge>
-                    <span className="text-[11px] text-text-tertiary">
-                      {formatDistanceToNow(req.createdAt)}
-                    </span>
-                    <Button size="sm" className="ml-1">Respond</Button>
-                  </div>
+                <div key={r._id} className="border-b border-line py-3 flex items-baseline gap-4 text-[13px] hover:bg-surface transition-colors px-1">
+                  <span className="text-faint tabular-nums w-10 shrink-0">{age}</span>
+                  <span className="text-ink flex-1 min-w-0 truncate">{hosp?.hospitalName ?? '—'}</span>
+                  <span className="text-muted hidden md:inline w-24 truncate">{hosp?.location?.area}</span>
+                  <span className={cn('w-20 tabular-nums', critical ? 'text-accent' : 'text-muted')}>
+                    {critical ? '● ' : '○ '}{r.urgencyLevel}
+                  </span>
+                  <span className="text-muted tabular-nums w-20 text-right">{matched}/{r.unitsNeeded} units</span>
+                  <button onClick={() => navigate('/donor/notifications')}
+                    className="text-ink hover:text-accent text-[12px] underline-offset-4 hover:underline">
+                    respond →
+                  </button>
                 </div>
               )
-            })
-          )}
-        </div>
-      </section>
-
-      {/* Recent Donations */}
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-[11px] font-medium text-text-tertiary uppercase tracking-wide">
-            Recent Donations
-          </p>
-          <Link
-            to="/donor/donations"
-            className="flex items-center gap-1 text-[12px] text-text-tertiary hover:text-text-secondary transition-colors"
-          >
-            View all <ChevronRight size={12} />
-          </Link>
-        </div>
-        <div className="rounded-md overflow-hidden" style={{ backgroundColor: '#111111' }}>
-          <table className="w-full">
-            <thead>
-              <tr style={{ borderBottom: '1px solid #1E1E1E' }}>
-                {['Date', 'Hospital', 'Blood Type', 'Status'].map((h) => (
-                  <th key={h} className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide" style={{ color: '#555' }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {donations.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-4 text-[13px] text-text-tertiary text-center">
-                    No donations yet.
-                  </td>
-                </tr>
-              ) : (
-                donations.map((d, i) => {
-                  const hosp = typeof d.hospital === 'object' ? d.hospital : null
-                  return (
-                    <tr
-                      key={d._id}
-                      className={`hover:bg-bg-hover transition-all duration-150 ${i !== donations.length - 1 ? 'border-b border-bg-border' : ''}`}
-                    >
-                      <td className="px-4 py-2.5 font-mono text-[12px] text-text-secondary">
-                        {format(d.scheduledDate)}
-                      </td>
-                      <td className="px-4 py-2.5 text-[13px] text-text-primary">
-                        {hosp?.hospitalName || '—'}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge variant="red">{d.bloodType}</Badge>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <StatusBadge status={d.status} />
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+            })}
+          </div>
+        )}
       </section>
     </div>
   )
-}
-
-function StatBlock({ label, value, valueColor }: { label: string; value: string; valueColor: string }) {
-  return (
-    <div className="flex-1 px-4 py-3 rounded-md" style={{ backgroundColor: '#141414' }}>
-      <p className="text-[11px] font-medium uppercase tracking-wide mb-1" style={{ color: '#555' }}>
-        {label}
-      </p>
-      <p className="font-mono text-[13px] font-medium" style={{ color: valueColor }}>
-        {value}
-      </p>
-    </div>
-  )
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; variant: 'green' | 'amber' | 'dim' | 'red' }> = {
-    completed: { label: 'Completed', variant: 'green' },
-    confirmed: { label: 'Confirmed', variant: 'amber' },
-    scheduled: { label: 'Scheduled', variant: 'dim' },
-    cancelled: { label: 'Cancelled', variant: 'red' },
-    no_show: { label: 'No-show', variant: 'red' },
-  }
-  const s = map[status] || { label: status, variant: 'dim' as const }
-  return <Badge variant={s.variant}>{s.label}</Badge>
 }

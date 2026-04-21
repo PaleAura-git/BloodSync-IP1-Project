@@ -25,6 +25,7 @@ export interface INotification extends Document {
    * /api/notifications/:id/read. Note: this is a single flag shared across all
    * recipients in the current implementation.
    */
+  title?: string;
   isRead: boolean;
   sentAt: Date;
   /**
@@ -74,6 +75,10 @@ const notificationSchema = new Schema<INotification>(
     unitsNeeded: {
       type: Number,
       min: 1,
+    },
+    title: {
+      type: String,
+      trim: true,
     },
     isRead: {
       type: Boolean,

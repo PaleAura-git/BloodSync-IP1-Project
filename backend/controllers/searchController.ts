@@ -5,6 +5,7 @@ import { SearchCriteria, MatchScore } from '../types/matching';
 import { getCompatibleBloodTypes } from '../utils/bloodCompatibility';
 import { calculateMatchScore } from '../utils/matchingScore';
 import { AuthRequest } from '../middleware/auth';
+import { transformDonor } from '../utils/transforms';
 
 export interface SearchDonorsRequest extends AuthRequest {
   body: SearchCriteria;
@@ -68,12 +69,12 @@ export const searchDonors = async (
       ],
     });
 
-    const scored: MatchScore[] = donors
+    const scored = donors
       .map((donor) => ({
-        donor,
-        score: calculateMatchScore(donor, { bloodType, neighborhood, urgency }),
+        donor: transformDonor(donor),
+        matchScore: calculateMatchScore(donor, { bloodType, neighborhood, urgency }),
       }))
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => b.matchScore - a.matchScore);
 
     console.log(
       `[INFO] ${new Date().toISOString()} searchDonors — bloodType=${bloodType} urgency=${urgency} results=${scored.length}`
@@ -118,16 +119,7 @@ export const revealContact = async (
       `[INFO] ${new Date().toISOString()} revealContact — donorId=${req.params.donorId} by hospitalUserId=${req.user?._id}`
     );
 
-    res.json({
-      success: true,
-      data: {
-        fullName: donor.fullName,
-        phone: donor.phone,
-        email: donor.email,
-        neighborhood: donor.neighborhood,
-        bloodType: donor.bloodType,
-      },
-    });
+    res.json({ success: true, data: transformDonor(donor) });
   } catch (err) {
     next(err);
   }

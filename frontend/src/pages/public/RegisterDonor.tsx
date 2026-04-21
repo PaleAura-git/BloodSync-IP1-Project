@@ -1,186 +1,151 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Logo } from '../../components/ui/Logo'
 import { Input, Select } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
+import { Icons } from '../../components/icons'
+import { cn } from '../../utils/cn'
 import { useAuth } from '../../contexts/AuthContext'
 import { authApi } from '../../api'
 import type { BloodType } from '../../types'
 
-const BLOOD_TYPES: { value: string; label: string }[] = [
-  { value: 'A+', label: 'A+' },
-  { value: 'A-', label: 'A-' },
-  { value: 'B+', label: 'B+' },
-  { value: 'B-', label: 'B-' },
-  { value: 'AB+', label: 'AB+' },
-  { value: 'AB-', label: 'AB-' },
-  { value: 'O+', label: 'O+' },
-  { value: 'O-', label: 'O-' },
-]
-
-const MUSCAT_AREAS = [
-  'Muscat', 'Muttrah', 'Ruwi', 'Madinat al-Sultan Qaboos', 'Al Khuwair',
-  'Qurum', 'Bousher', 'Al Ghubra', 'Al Maabilah', 'Seeb', 'Azaiba',
-  'Al Khoud', 'Wattayah', 'Darsait', 'Hamriyah', 'Al Amerat', 'Quriyat',
-  'Bowshar', 'Muwaileh', 'Al Hail',
-].map((a) => ({ value: a, label: a }))
+const BLOOD_TYPES: BloodType[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+const AREAS = ['Al Khuwair', 'Ghala', 'Ruwi', 'Muttrah', 'Seeb', 'Bousher', 'Al Maabela', 'Qurum', 'Azaiba', 'Wadi Kabir']
 
 export function RegisterDonor() {
-  const navigate = useNavigate()
   const { login } = useAuth()
+  const navigate = useNavigate()
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const [form, setForm] = useState({
-    fullName: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    phone: '',
+    fullName: '', email: '', phone: '', password: '',
     bloodType: '' as BloodType | '',
-    lastDonationDate: '',
-    area: '',
-    address: '',
+    dateOfBirth: '', lastDonationDate: '',
+    area: '', address: '', shareContact: true,
   })
+  const set = (k: keyof typeof form, v: string | boolean) => setForm(f => ({ ...f, [k]: v }))
 
-  const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((f) => ({ ...f, [field]: e.target.value }))
-
-  const handleNext = () => {
+  const handleFinish = async () => {
     setError('')
-    if (step === 1) {
-      if (!form.fullName || !form.email || !form.password || !form.phone) {
-        setError('All fields are required.')
-        return
-      }
-      if (form.password !== form.confirmPassword) {
-        setError('Passwords do not match.')
-        return
-      }
-    }
-    if (step === 2) {
-      if (!form.bloodType) {
-        setError('Please select your blood type.')
-        return
-      }
-    }
-    setStep((s) => s + 1)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.area || !form.address) {
-      setError('Location is required.')
-      return
-    }
     setLoading(true)
-    setError('')
     try {
       const res = await authApi.register({
-        email: form.email,
-        password: form.password,
-        userType: 'DONOR',
-        fullName: form.fullName,
+        email: form.email, password: form.password,
+        userType: 'DONOR', fullName: form.fullName,
         phone: form.phone,
-        bloodType: form.bloodType as BloodType,
-        lastDonationDate: form.lastDonationDate || undefined,
+        bloodType: form.bloodType as BloodType || undefined,
         location: { area: form.area, address: form.address },
+        lastDonationDate: form.lastDonationDate || undefined,
       })
-      const { token, user } = res.data
+      const { token, user } = res.data.data || res.data
       login(token, user)
       navigate('/donor/dashboard')
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Registration failed.'
-      setError(msg)
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Registration failed.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-bg-base flex items-center justify-center py-8">
-      <div className="w-[380px]">
-        <div className="bg-bg-surface border border-bg-border rounded-lg p-7">
-          <div className="mb-5">
-            <Logo size="sm" />
-            <p className="text-text-secondary text-[13px] mt-3">Create donor account</p>
-          </div>
+    <div className="min-h-screen bg-bg flex">
+      <aside className="w-[260px] border-r border-line p-6 hidden md:flex flex-col">
+        <Logo size={24}/>
+        <div className="text-[11px] uppercase tracking-wider text-muted mt-8 mb-3">Setup</div>
+        <ol className="space-y-1 text-[13px]">
+          {[['Basics'], ['Medical'], ['Location']].map(([l], i) => (
+            <li key={i} className={cn('flex items-center gap-2.5 px-2 py-1.5 rounded-md',
+              i + 1 === step && 'bg-accent-glow text-accent',
+              i + 1 < step && 'text-success')}>
+              <span className={cn(
+                'h-5 w-5 rounded-full border flex items-center justify-center text-[10px] font-semibold shrink-0',
+                i + 1 < step ? 'bg-success border-success text-white' :
+                i + 1 === step ? 'bg-accent border-accent text-white' :
+                'bg-surface2 border-line text-muted'
+              )}>
+                {i + 1 < step ? <Icons.Check size={10}/> : i + 1}
+              </span>
+              {l}
+            </li>
+          ))}
+        </ol>
+        <button onClick={() => navigate('/')}
+          className="mt-auto text-[12px] text-muted hover:text-ink flex items-center gap-1">
+          <Icons.ArrowLeft size={12}/> Back to sign in
+        </button>
+      </aside>
 
-          {/* Step indicator */}
-          <div className="flex gap-1.5 mb-6">
-            {[1, 2, 3].map((s) => (
-              <div
-                key={s}
-                className={`h-0.5 flex-1 rounded-full transition-all duration-150 ${
-                  s <= step ? 'bg-red-accent' : 'bg-bg-border'
-                }`}
-              />
+      <main className="flex-1 flex flex-col">
+        <div className="h-12 border-b border-line px-6 flex items-center justify-between">
+          <div className="text-[12px] text-muted">
+            Donor registration · Step <span className="text-ink font-medium">{step}</span> of 3
+          </div>
+          <div className="flex items-center gap-1 w-40">
+            {[1, 2, 3].map(n => (
+              <div key={n} className={cn('h-1 flex-1 rounded-full', n <= step ? 'bg-accent' : 'bg-surface2')}/>
             ))}
           </div>
-
-          {error && <p className="text-red-accent text-[12px] mb-3">{error}</p>}
-
-          {step === 1 && (
-            <div className="flex flex-col gap-3">
-              <p className="text-[11px] text-text-tertiary uppercase tracking-wide font-medium">Step 1 — Personal Info</p>
-              <Input label="Full name" value={form.fullName} onChange={set('fullName')} placeholder="Afan Al Ghazali" />
-              <Input label="Email" type="email" value={form.email} onChange={set('email')} placeholder="you@example.com" />
-              <Input label="Password" type="password" value={form.password} onChange={set('password')} placeholder="••••••••" />
-              <Input label="Confirm password" type="password" value={form.confirmPassword} onChange={set('confirmPassword')} placeholder="••••••••" />
-              <Input label="Phone" type="tel" value={form.phone} onChange={set('phone')} placeholder="+968 XXXX XXXX" />
-              <Button onClick={handleNext} className="w-full mt-1">Next</Button>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="flex flex-col gap-3">
-              <p className="text-[11px] text-text-tertiary uppercase tracking-wide font-medium">Step 2 — Blood Info</p>
-              <Select
-                label="Blood type"
-                options={BLOOD_TYPES}
-                placeholder="Select blood type"
-                value={form.bloodType}
-                onChange={set('bloodType')}
-              />
-              <Input
-                label="Last donation date (optional)"
-                type="date"
-                value={form.lastDonationDate}
-                onChange={set('lastDonationDate')}
-              />
-              <div className="flex gap-2 mt-1">
-                <Button variant="ghost" onClick={() => setStep(1)} className="flex-1">Back</Button>
-                <Button onClick={handleNext} className="flex-1">Next</Button>
-              </div>
-            </div>
-          )}
-
-          {step === 3 && (
-            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-              <p className="text-[11px] text-text-tertiary uppercase tracking-wide font-medium">Step 3 — Location</p>
-              <Select
-                label="Area in Muscat"
-                options={MUSCAT_AREAS}
-                placeholder="Select area"
-                value={form.area}
-                onChange={set('area')}
-              />
-              <Input label="Address" value={form.address} onChange={set('address')} placeholder="Street or neighborhood" />
-              <div className="flex gap-2 mt-1">
-                <Button variant="ghost" type="button" onClick={() => setStep(2)} className="flex-1">Back</Button>
-                <Button type="submit" loading={loading} className="flex-1">Create Account</Button>
-              </div>
-            </form>
-          )}
-
-          <p className="text-[12px] text-text-tertiary mt-4">
-            <Link to="/login/donor" className="hover:text-text-secondary transition-colors">
-              Already have an account? Log in
-            </Link>
-          </p>
         </div>
-      </div>
+
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="max-w-md">
+            {step === 1 && (
+              <div className="space-y-4">
+                <Input label="Full name" placeholder="Leila Al-Harthi" value={form.fullName} onChange={e => set('fullName', e.target.value)}/>
+                <Input label="Email" type="email" placeholder="you@example.om" value={form.email} onChange={e => set('email', e.target.value)}/>
+                <Input label="Phone" type="tel" placeholder="+968 9123 4567" value={form.phone} onChange={e => set('phone', e.target.value)}/>
+                <Input label="Password" type="password" hint="Min. 8 characters, one number" value={form.password} onChange={e => set('password', e.target.value)}/>
+              </div>
+            )}
+            {step === 2 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[13px] font-medium text-ink mb-2">Blood type</label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {BLOOD_TYPES.map(bt => (
+                      <button key={bt} onClick={() => set('bloodType', bt)}
+                        className={cn('h-10 rounded-md border text-[13px] font-semibold transition-colors',
+                          form.bloodType === bt
+                            ? 'bg-accent-glow border-accent text-accent'
+                            : 'bg-surface border-line text-ink hover:border-line2')}>
+                        {bt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Input label="Date of birth" type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth', e.target.value)}/>
+                <Input label="Last donation (optional)" type="date" value={form.lastDonationDate} onChange={e => set('lastDonationDate', e.target.value)}/>
+              </div>
+            )}
+            {step === 3 && (
+              <div className="space-y-4">
+                <Select label="Area" options={AREAS.map(a => ({ value: a, label: a }))} placeholder="Select area"
+                  value={form.area} onChange={e => set('area', e.target.value)}/>
+                <Input label="Address" placeholder="Way 3041, Building 14" value={form.address} onChange={e => set('address', e.target.value)}/>
+                <label className="flex gap-2.5 p-3 rounded-md bg-surface border border-line text-[12px] cursor-pointer">
+                  <input type="checkbox" checked={form.shareContact as boolean}
+                    onChange={e => set('shareContact', e.target.checked)}
+                    className="mt-0.5 accent-[var(--bs-accent)]"/>
+                  <span className="text-ink">Share contact with verified hospitals when matched.</span>
+                </label>
+                {error && <p className="text-xs text-danger">{error}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t border-line px-6 py-3 flex justify-between bg-surface">
+          <Button variant="ghost" size="sm" onClick={() => step > 1 ? setStep(step - 1) : navigate('/')}>
+            Back
+          </Button>
+          {step < 3
+            ? <Button size="sm" onClick={() => setStep(step + 1)} rightIcon={<Icons.Arrow size={12}/>}>Continue</Button>
+            : <Button size="sm" loading={loading} onClick={handleFinish} rightIcon={<Icons.Check size={12}/>}>Finish</Button>
+          }
+        </div>
+      </main>
     </div>
   )
 }

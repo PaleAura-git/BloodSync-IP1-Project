@@ -1,202 +1,187 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Badge } from '../../components/ui/Badge'
-import { PageSpinner } from '../../components/ui/Spinner'
+import { useState, useEffect, useRef } from 'react'
 import { searchApi } from '../../api'
-import type { BloodType, SearchResult } from '../../types'
-import { format } from '../../utils/date'
+import { Button } from '../../components/ui/Button'
+import { Modal } from '../../components/ui/Modal'
+import { cn } from '../../utils/cn'
+import type { BloodType, SearchResult, DonorProfile } from '../../types'
+import { Row } from '../../components/ui/Row'
 
-const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((v) => ({ value: v, label: v }))
-const MUSCAT_AREAS = [
-  'Muscat', 'Muttrah', 'Ruwi', 'Madinat al-Sultan Qaboos', 'Al Khuwair',
-  'Qurum', 'Bousher', 'Al Ghubra', 'Al Maabilah', 'Seeb', 'Azaiba',
-  'Al Khoud', 'Wattayah', 'Darsait', 'Hamriyah', 'Al Amerat', 'Quriyat',
-  'Bowshar', 'Muwaileh', 'Al Hail',
-].map((a) => ({ value: a, label: a }))
+const BLOOD_TYPES: BloodType[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 
-const selectStyle = { backgroundColor: '#1A1A1A', border: 'none', color: '#EFEFEF' }
+const AREAS = [
+  'Al Khuwair', 'Ruwi', 'Seeb', 'Bausher', 'Al Ghubra',
+  'Qurum', 'Madinat Sultan Qaboos', 'Al Hail', 'Al Amerat',
+  'Wadi Kabir', 'Darsait', 'Al Khoud', 'Muttrah', 'Azaiba',
+  'Al Mawaleh', 'Shati Al Qurum', 'Madinat Al Ilam', 'Bowsher', 'Al Ansab',
+]
 
 export function HospitalSearch() {
-  const [searchParams] = useSearchParams()
-  const [bloodType, setBloodType] = useState(searchParams.get('blood') || '')
-  const [area, setArea] = useState('')
-  const [availableOnly, setAvailableOnly] = useState(false)
+  const [bt, setBt] = useState<BloodType>('O-')
+  const [urgency, setUrgency] = useState<'URGENT' | 'STANDARD'>('STANDARD')
+  const [area, setArea] = useState<string | null>(null)
+  const [areaOpen, setAreaOpen] = useState(false)
+  const areaRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!areaOpen) return
+    const handler = (e: MouseEvent) => {
+      if (areaRef.current && !areaRef.current.contains(e.target as Node)) setAreaOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [areaOpen])
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
-  const [requesting, setRequesting] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState<Record<string, string>>({})
+  const [revealed, setRevealed] = useState<DonorProfile | null>(null)
+  const [revealData, setRevealData] = useState<DonorProfile | null>(null)
 
-  useEffect(() => {
-    if (searchParams.get('blood')) handleSearch()
-  }, [])
-
-  const handleSearch = async () => {
-    if (!bloodType) return
+  const search = async () => {
     setLoading(true)
-    setSearched(false)
+    setSearched(true)
     try {
-      const res = await searchApi.searchDonors({
-        bloodType: bloodType as BloodType,
-        area: area || undefined,
-        availableOnly,
-      })
-      setResults(res.data.data || res.data.results || [])
-    } catch {
-      setResults([])
-    } finally {
-      setLoading(false)
-      setSearched(true)
-    }
+      const res = await searchApi.searchDonors({ bloodType: bt, urgency, neighborhood: area ?? undefined })
+      setResults(res.data.data || res.data || [])
+    } catch {} finally { setLoading(false) }
   }
 
-  const handleRequestDonation = async (donorId: string) => {
-    setRequesting(donorId)
+  const reveal = async (donor: DonorProfile) => {
     try {
-      await searchApi.revealContact(donorId)
-      setFeedback((f) => ({ ...f, [donorId]: 'Notification sent' }))
-      setTimeout(() => setFeedback((f) => { const n = { ...f }; delete n[donorId]; return n }), 3000)
+      const res = await searchApi.revealContact(donor._id)
+      setRevealData(res.data.data || res.data || donor)
+      setRevealed(donor)
     } catch {
-      setFeedback((f) => ({ ...f, [donorId]: 'Failed' }))
-      setTimeout(() => setFeedback((f) => { const n = { ...f }; delete n[donorId]; return n }), 3000)
-    } finally {
-      setRequesting(null)
+      setRevealData(donor)
+      setRevealed(donor)
     }
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="font-heading font-semibold text-[20px] text-text-primary">Search Donors</h1>
+    <div className="animate-fade-in">
+      <div className="flex items-baseline justify-between mb-8">
+        <h1 className="text-[18px] font-semibold text-ink">Find donors</h1>
+        <div className="text-[12px] text-faint tabular-nums">
+          {searched ? `${results.length} match${results.length === 1 ? '' : 'es'}` : ''}
+        </div>
+      </div>
 
       {/* Filters */}
-      <div className="rounded-md px-4 py-4" style={{ backgroundColor: '#141414' }}>
-        <div className="flex items-end gap-3 flex-wrap">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-tertiary uppercase tracking-wide font-medium">Blood type</label>
-            <select
-              value={bloodType}
-              onChange={(e) => setBloodType(e.target.value)}
-              className="rounded px-3 py-1.5 text-[13px] focus:outline-none min-w-[120px]"
-              style={selectStyle}
-            >
-              <option value="">Select</option>
-              {BLOOD_TYPES.map((bt) => (
-                <option key={bt.value} value={bt.value}>{bt.label}</option>
-              ))}
-            </select>
+      <div className="border-t border-line mb-6">
+        <div className="flex items-baseline gap-4 py-3 px-1 border-b border-line text-[13px]">
+          <span className="text-faint w-24 shrink-0">Blood type</span>
+          <div className="flex gap-2 flex-wrap">
+            {BLOOD_TYPES.map(x => (
+              <button key={x} onClick={() => setBt(x)}
+                className={cn('px-2 tabular-nums transition-colors',
+                  bt === x ? 'text-accent' : 'text-muted hover:text-ink')}>
+                {bt === x ? '● ' : '○ '}{x.replace('-', '−')}
+              </button>
+            ))}
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-tertiary uppercase tracking-wide font-medium">Area</label>
-            <select
-              value={area}
-              onChange={(e) => setArea(e.target.value)}
-              className="rounded px-3 py-1.5 text-[13px] focus:outline-none min-w-[150px]"
-              style={selectStyle}
-            >
-              <option value="">Any area</option>
-              {MUSCAT_AREAS.map((a) => (
-                <option key={a.value} value={a.value}>{a.label}</option>
-              ))}
-            </select>
+        </div>
+        <div className="relative border-b border-line" ref={areaRef}>
+          <div className="flex items-baseline gap-4 py-3 px-1 text-[13px]">
+            <span className="text-faint w-24 shrink-0">Area</span>
+            <span className="text-ink">{area ?? 'Any'}</span>
+            <button onClick={() => setAreaOpen(o => !o)}
+              className="text-faint text-[11px] hover:text-ink transition-colors">
+              — change
+            </button>
+            {area && (
+              <button onClick={() => setArea(null)} className="text-faint text-[11px] hover:text-ink transition-colors">
+                · clear
+              </button>
+            )}
           </div>
-          <label className="flex items-center gap-2 cursor-pointer mb-0.5">
-            <input
-              type="checkbox"
-              checked={availableOnly}
-              onChange={(e) => setAvailableOnly(e.target.checked)}
-              className="accent-red-accent"
-            />
-            <span className="text-[13px] text-text-secondary">Available now</span>
-          </label>
-          <button
-            onClick={handleSearch}
-            disabled={!bloodType || loading}
-            className="px-4 py-1.5 rounded text-[13px] font-body font-semibold text-white transition-all duration-150 disabled:opacity-40 cursor-pointer"
-            style={{ backgroundColor: '#E53935' }}
-            onMouseEnter={e => { if (bloodType && !loading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#C62828' }}
-            onMouseLeave={e => { if (bloodType && !loading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#E53935' }}
-          >
-            Search
+          {areaOpen && (
+            <div className="absolute left-28 top-0 z-20 bg-elevated border border-line rounded shadow-pop py-1 w-52 max-h-64 overflow-y-auto animate-fade-in">
+              {AREAS.map(a => (
+                <button key={a} onClick={() => { setArea(a); setAreaOpen(false) }}
+                  className={cn('w-full text-left px-3 py-1.5 text-[13px] hover:bg-surface transition-colors',
+                    area === a ? 'text-accent' : 'text-ink')}>
+                  {a}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-baseline gap-4 py-3 px-1 border-b border-line text-[13px]">
+          <span className="text-faint w-24 shrink-0">Urgency</span>
+          <div className="flex gap-4">
+            {(['STANDARD', 'URGENT'] as const).map(u => (
+              <button key={u} onClick={() => setUrgency(u)}
+                className={cn('inline-flex items-center gap-2 transition-colors',
+                  urgency === u ? 'text-accent' : 'text-muted hover:text-ink')}>
+                <span className={cn('h-1.5 w-1.5 rounded-full', urgency === u ? 'bg-accent' : 'bg-faint')}/>
+                {u.toLowerCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="py-3 px-1">
+          <button onClick={search} disabled={loading}
+            className="text-ink hover:text-accent text-[13px] underline-offset-4 hover:underline disabled:opacity-50">
+            {loading ? 'searching…' : 'search →'}
           </button>
         </div>
       </div>
 
-      {/* Results container — always visible */}
-      <div className="rounded-md overflow-hidden" style={{ backgroundColor: '#111111' }}>
-        {loading ? (
-          <div className="py-10 flex justify-center">
-            <PageSpinner />
+      {/* Results */}
+      {searched && (
+        <div className="border-t border-line">
+          <div className="flex items-baseline gap-4 text-[11px] text-faint px-1 py-2 border-b border-line">
+            <span className="w-10">Type</span>
+            <span className="flex-1">Name</span>
+            <span className="w-28 hidden md:inline">Area</span>
+            <span className="w-16 tabular-nums hidden md:inline">Prior</span>
+            <span className="w-14 tabular-nums">Match</span>
+            <span className="w-20 text-right">Action</span>
           </div>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr style={{ borderBottom: '1px solid #1E1E1E' }}>
-                {['Name', 'Blood Type', 'Area', 'Eligibility', 'Last Donation', 'Score', ''].map((h) => (
-                  <th key={h} className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wide" style={{ color: '#555' }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {!searched && results.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-[13px] text-text-tertiary">
-                    Search for donors by selecting a blood type.
-                  </td>
-                </tr>
-              ) : searched && results.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-[13px] text-text-tertiary">
-                    No matching donors found. Try adjusting your filters.
-                  </td>
-                </tr>
-              ) : (
-                results.map((r, i) => (
-                  <tr
-                    key={r.donor._id}
-                    className="hover:bg-bg-hover transition-all duration-150"
-                    style={i !== results.length - 1 ? { borderBottom: '1px solid #1A1A1A' } : {}}
-                  >
-                    <td className="px-4 py-2.5 text-[13px] text-text-primary">{r.donor.fullName || '—'}</td>
-                    <td className="px-4 py-2.5"><Badge variant="red">{r.donor.bloodType}</Badge></td>
-                    <td className="px-4 py-2.5 text-[13px] text-text-secondary">{r.donor.location?.area || '—'}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-[12px] font-medium ${r.donor.isEligible ? 'text-green-accent' : 'text-red-accent'}`}>
-                        {r.donor.isEligible ? 'Eligible' : 'Not eligible'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-[12px] text-text-secondary">
-                      {r.donor.lastDonationDate ? format(r.donor.lastDonationDate) : '—'}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-[12px] text-text-tertiary">
-                      {r.matchScore ? `${Math.round(r.matchScore * 100)}%` : '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {feedback[r.donor._id] ? (
-                        <span className={`text-[12px] ${feedback[r.donor._id] === 'Notification sent' ? 'text-green-accent' : 'text-red-accent'}`}>
-                          {feedback[r.donor._id]}
-                        </span>
-                      ) : (
-                        <button
-                          disabled={requesting === r.donor._id}
-                          onClick={() => handleRequestDonation(r.donor._id)}
-                          className="px-3 py-1 rounded text-[12px] font-body font-semibold text-white transition-all duration-150 disabled:opacity-40 cursor-pointer"
-                          style={{ backgroundColor: '#E53935' }}
-                          onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#C62828')}
-                          onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#E53935')}
-                        >
-                          {requesting === r.donor._id ? '…' : 'Request'}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          {results.map(r => {
+            const d = r.donor
+            const bloodType = d.bloodType.replace('-', '−')
+            return (
+              <div key={d._id} className="flex items-baseline gap-4 py-3 px-1 border-b border-line text-[13px] hover:bg-surface transition-colors">
+                <span className="text-ink tabular-nums w-10">{bloodType}</span>
+                <span className="flex-1 min-w-0 truncate text-ink">
+                  {d.fullName}
+                  {!d.isAvailable && <span className="text-faint"> · cooldown</span>}
+                </span>
+                <span className="text-muted w-28 truncate hidden md:inline">{d.location?.area}</span>
+                <span className="text-muted tabular-nums w-16 hidden md:inline">{d.totalDonations} prior</span>
+                <span className="text-ink tabular-nums w-14">{Math.round(r.matchScore * 100)}%</span>
+                <button onClick={() => reveal(d)}
+                  className="w-20 text-right text-ink hover:text-accent text-[12px] underline-offset-4 hover:underline">
+                  reveal →
+                </button>
+              </div>
+            )
+          })}
+          {results.length === 0 && (
+            <div className="py-12 text-center text-[13px] text-muted">No donors found matching your criteria.</div>
+          )}
+        </div>
+      )}
+
+      <Modal open={!!revealed} onClose={() => setRevealed(null)}
+        title="Donor contact revealed"
+        subtitle="This action is logged for compliance and audit."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRevealed(null)}>Close</Button>
+            <Button>Call now</Button>
+          </>
+        }>
+        {revealData && (
+          <dl className="text-[13px] border-t border-line">
+            <Row k="Name" v={<span className="text-ink">{revealData.fullName}</span>}/>
+            <Row k="Type" v={<span className="text-ink">{revealData.bloodType?.replace('-', '−')}</span>}/>
+            <Row k="Area" v={<span className="text-ink">{revealData.location?.area}</span>}/>
+            <Row k="Donations" v={<span className="text-ink tabular-nums">{revealData.totalDonations}</span>}/>
+            <Row k="Phone" v={<span className="text-ink">{revealData.phone}</span>}/>
+          </dl>
         )}
-      </div>
+      </Modal>
     </div>
   )
 }

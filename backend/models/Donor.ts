@@ -72,6 +72,8 @@ export interface IDonor extends Document {
   isContactVisible: boolean;
   /** Minimum: 50 kg. Below this threshold, donation can cause adverse reactions. */
   weight: number;
+  /** Running count of completed donations. Incremented by completeDonation. */
+  totalDonations: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -146,6 +148,11 @@ const donorSchema = new Schema<IDonor>(
     isContactVisible: {
       type: Boolean,
       default: false,
+    },
+    totalDonations: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     weight: {
       type: Number,

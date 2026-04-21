@@ -54,8 +54,8 @@ export const quizApi = {
 
 // Search
 export const searchApi = {
-  searchDonors: (data: { bloodType: BloodType; area?: string; availableOnly?: boolean }) =>
-    client.post('/search/donors', data),
+  searchDonors: (data: { bloodType: BloodType; urgency?: 'URGENT' | 'STANDARD'; neighborhood?: string }) =>
+    client.post('/search/donors', { urgency: 'STANDARD', ...data }),
   revealContact: (donorId: string) => client.post(`/search/reveal-contact/${donorId}`),
 }
 

@@ -3,6 +3,7 @@ import { validationResult } from 'express-validator';
 import Donor from '../models/Donor';
 import { AuthRequest } from '../middleware/auth';
 import { CreateDonorRequest, UpdateDonorRequest } from '../types/donor';
+import { transformDonor } from '../utils/transforms';
 
 /**
  * POST /api/donors
@@ -50,7 +51,7 @@ export const createDonor = async (
       medicalHistory: body.medicalHistory ?? {},
     });
 
-    res.status(201).json({ success: true, donor });
+    res.status(201).json({ success: true, data: transformDonor(donor) });
   } catch (err) {
     next(err);
   }
@@ -77,7 +78,7 @@ export const getDonorProfile = async (
       res.status(404).json({ success: false, message: 'Donor profile not found' });
       return;
     }
-    res.json({ success: true, donor });
+    res.json({ success: true, data: transformDonor(donor) });
   } catch (err) {
     next(err);
   }
@@ -129,7 +130,7 @@ export const updateDonorProfile = async (
       return;
     }
 
-    res.json({ success: true, donor });
+    res.json({ success: true, data: transformDonor(donor) });
   } catch (err) {
     next(err);
   }
@@ -192,7 +193,7 @@ export const getDonorById = async (
       res.status(404).json({ success: false, message: 'Donor not found' });
       return;
     }
-    res.json({ success: true, donor });
+    res.json({ success: true, data: transformDonor(donor) });
   } catch (err) {
     next(err);
   }

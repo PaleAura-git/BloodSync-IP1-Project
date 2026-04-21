@@ -3,6 +3,7 @@ import { validationResult } from 'express-validator';
 import Hospital from '../models/Hospital';
 import { AuthRequest } from '../middleware/auth';
 import { CreateHospitalRequest, UpdateHospitalRequest } from '../types/hospital';
+import { transformHospital } from '../utils/transforms';
 
 /**
  * POST /api/hospitals
@@ -51,7 +52,7 @@ export const createHospital = async (
       ...(body.licenseNumber ? { licenseNumber: body.licenseNumber } : {}),
     });
 
-    res.status(201).json({ success: true, hospital });
+    res.status(201).json({ success: true, data: transformHospital(hospital) });
   } catch (err) {
     next(err);
   }
@@ -78,7 +79,7 @@ export const getHospitalProfile = async (
       res.status(404).json({ success: false, message: 'Hospital profile not found' });
       return;
     }
-    res.json({ success: true, hospital });
+    res.json({ success: true, data: transformHospital(hospital) });
   } catch (err) {
     next(err);
   }
@@ -128,7 +129,7 @@ export const updateHospitalProfile = async (
       return;
     }
 
-    res.json({ success: true, hospital });
+    res.json({ success: true, data: transformHospital(hospital) });
   } catch (err) {
     next(err);
   }

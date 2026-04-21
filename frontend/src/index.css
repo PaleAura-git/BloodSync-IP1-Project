@@ -1,59 +1,114 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-* {
-  box-sizing: border-box;
+@theme {
+  --color-bg: #0A0A0A;
+  --color-sidebar: #0E0E0E;
+  --color-elevated: #121212;
+  --color-surface: #161616;
+  --color-surface2: #1D1D1D;
+  --color-subtle: rgba(255,255,255,0.02);
+  --color-line: #242424;
+  --color-line2: #323232;
+  --color-ink: #EFEFEF;
+  --color-muted: #9A9A9A;
+  --color-faint: #5E5E5E;
+  --color-disabled: #3A3A3A;
+  --color-accent: #E53935;
+  --color-accent-hover: #F04A46;
+  --color-accent-dim: #C62828;
+  --color-accent-glow: rgba(229,57,53,0.16);
+  --color-success: #2EC486;
+  --color-warning: #F59E0B;
+  --color-info: #60a5fa;
+  --color-danger: #E53935;
+
+  --font-sans: 'JetBrains Mono', ui-monospace, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / .4), 0 4px 12px rgb(0 0 0 / .2);
+  --shadow-pop: 0 10px 40px -10px rgb(0 0 0 / .6), 0 2px 8px rgb(0 0 0 / .3);
 }
 
-html, body, #root {
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  background-color: #0A0A0A;
-  color: #EFEFEF;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
+:root {
+  --bs-bg-base: #0A0A0A;
+  --bs-bg-surface: #161616;
+  --bs-border: #242424;
+  --bs-accent: #E53935;
+  --bs-accent-hover: #F04A46;
+  --bs-accent-dim: #C62828;
+  --bs-accent-glow: rgba(229,57,53,0.16);
+  --bs-success: #2EC486;
+  --bs-text-primary: #EFEFEF;
+  --bs-h-input: 40px;
+  --bs-ease: ease-out;
+}
+
+[data-density="compact"] {
+  --bs-h-input: 34px;
+}
+
+html, body {
+  background: var(--bs-bg-base);
+  color: var(--bs-text-primary);
+  font-feature-settings: 'ss01', 'ss02', 'ss03', 'ss19', 'ss20', 'zero', 'cv11';
+  font-variant-ligatures: contextual;
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-#root {
-  width: 100%;
-  text-align: left;
-  display: block;
-  max-width: 100%;
-  border-inline: none;
-  min-height: 100svh;
+h1, h2, h3, h4 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
-/* Autofill — override browser yellow/cream backgrounds */
+input, select, textarea, button { font-family: inherit; }
+
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
-  -webkit-box-shadow: 0 0 0 1000px #111111 inset;
+  -webkit-box-shadow: 0 0 0 1000px #161616 inset;
   -webkit-text-fill-color: #EFEFEF;
   caret-color: #EFEFEF;
   transition: background-color 5000s ease-in-out 0s;
 }
 
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 6px; border: 2px solid #0A0A0A; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+.bs-card {
+  background: #121212;
+  border: 1px solid #242424;
+  border-radius: 4px;
 }
-::-webkit-scrollbar-track {
-  background: #0A0A0A;
-}
-::-webkit-scrollbar-thumb {
-  background: #262626;
-  border-radius: 2px;
+.bs-card-raised {
+  background: #161616;
+  border: 1px solid #242424;
+  border-radius: 4px;
+  box-shadow: 0 6px 24px -12px rgb(0 0 0 / .6);
 }
 
-select {
-  appearance: none;
-  -webkit-appearance: none;
+.focus-ring:focus-within {
+  border-color: var(--bs-accent) !important;
+  box-shadow: 0 0 0 3px var(--bs-accent-glow);
 }
 
-*:focus-visible {
-  outline: 1px solid #E53935;
-  outline-offset: 2px;
+.tracking-tight  { letter-spacing: -0.02em !important; }
+.tracking-wider  { letter-spacing:  0.05em !important; }
+
+@keyframes fade-in  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slide-up { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: translateY(0) } }
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(229,57,53,.55); }
+  70%  { box-shadow: 0 0 0 14px rgba(229,57,53,0); }
+  100% { box-shadow: 0 0 0 0 rgba(229,57,53,0); }
 }
+@keyframes skeleton-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }
+
+.animate-fade-in  { animation: fade-in 180ms ease-out; }
+.animate-slide-up { animation: slide-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.animate-skeleton { animation: skeleton-pulse 1.6s ease-in-out infinite; }
+.pulse-accent     { animation: pulse-ring 2s cubic-bezier(0.66,0,0,1) infinite; }

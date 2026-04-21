@@ -1,96 +1,83 @@
 import { useEffect, useState } from 'react'
-import { Badge } from '../../components/ui/Badge'
-import { PageSpinner } from '../../components/ui/Spinner'
 import { donationApi } from '../../api'
+import { PageSpinner } from '../../components/ui/Spinner'
+import { cn } from '../../utils/cn'
 import type { Donation } from '../../types'
-import { format } from '../../utils/date'
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; variant: 'green' | 'amber' | 'dim' | 'red' }> = {
-    completed: { label: 'Completed', variant: 'green' },
-    confirmed: { label: 'Confirmed', variant: 'amber' },
-    scheduled: { label: 'Scheduled', variant: 'dim' },
-    cancelled: { label: 'Cancelled', variant: 'red' },
-    no_show: { label: 'No-show', variant: 'red' },
-  }
-  const s = map[status] || { label: status, variant: 'dim' as const }
-  return <Badge variant={s.variant}>{s.label}</Badge>
-}
+type Tab = 'upcoming' | 'past'
 
 export function HospitalDonations() {
-  const [donations, setDonations] = useState<Donation[]>([])
+  const [rows, setRows] = useState<Donation[]>([])
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState('')
+  const [tab, setTab] = useState<Tab>('upcoming')
 
   useEffect(() => {
-    donationApi.getHospitalDonations()
-      .then((res) => setDonations(res.data.data || res.data.donations || []))
-      .finally(() => setLoading(false))
+    donationApi.getHospitalDonations().then(res => {
+      setRows(res.data.data || res.data || [])
+    }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <PageSpinner />
+  const isUpcoming = (d: Donation) => ['scheduled', 'confirmed'].includes(d.status)
+  const filtered = tab === 'upcoming' ? rows.filter(isUpcoming) : rows.filter(d => !isUpcoming(d))
 
-  const filtered = statusFilter ? donations.filter((d) => d.status === statusFilter) : donations
+  const actionLabel: Record<string, string> = {
+    confirmed: 'check in →',
+    scheduled: 'confirm →',
+    completed: 'details →',
+    no_show: 'follow up →',
+    cancelled: 'details →',
+  }
+
+  if (loading) return <PageSpinner/>
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="font-heading font-semibold text-[20px] text-text-primary">Donation History</h1>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded px-3 py-1.5 text-[12px] text-text-secondary focus:outline-none"
-          style={{ backgroundColor: '#1A1A1A', border: 'none' }}
-        >
-          <option value="">All statuses</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="no_show">No-show</option>
-        </select>
+    <div className="animate-fade-in">
+      <div className="flex items-baseline justify-between mb-8">
+        <h1 className="text-[18px] font-semibold text-ink">Appointments</h1>
+        <button className="text-[13px] text-muted hover:text-ink">export ↓</button>
       </div>
 
-      {/* Table — always rendered */}
-      <div className="rounded-md overflow-hidden" style={{ backgroundColor: '#111111' }}>
-        <table className="w-full">
-          <thead>
-            <tr style={{ borderBottom: '1px solid #1E1E1E' }}>
-              {['Date', 'Donor', 'Blood Type', 'Units', 'Status'].map((h) => (
-                <th key={h} className="px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wide" style={{ color: '#555' }}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center">
-                  <p className="text-[13px] text-text-tertiary">No donations recorded yet.</p>
-                  <p className="text-[12px] mt-0.5" style={{ color: '#444' }}>Donations will appear here once scheduled by donors.</p>
-                </td>
-              </tr>
-            ) : (
-              filtered.map((d, i) => {
-                const donor = typeof d.donor === 'object' ? d.donor : null
-                return (
-                  <tr
-                    key={d._id}
-                    className="hover:bg-bg-hover transition-all duration-150"
-                    style={i !== filtered.length - 1 ? { borderBottom: '1px solid #1A1A1A' } : {}}
-                  >
-                    <td className="px-4 py-2.5 font-mono text-[12px] text-text-secondary">{format(d.scheduledDate)}</td>
-                    <td className="px-4 py-2.5 text-[13px] text-text-primary">{donor?.fullName || '—'}</td>
-                    <td className="px-4 py-2.5"><Badge variant="red">{d.bloodType}</Badge></td>
-                    <td className="px-4 py-2.5 font-mono text-[12px] text-text-secondary">{d.units}</td>
-                    <td className="px-4 py-2.5"><StatusBadge status={d.status} /></td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
+      <div className="flex items-baseline gap-6 border-b border-line mb-6 text-[13px]">
+        {([['upcoming', 'Upcoming'], ['past', 'Past']] as [Tab, string][]).map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={cn('pb-2 -mb-px border-b transition-colors',
+              tab === k ? 'border-ink text-ink' : 'border-transparent text-muted hover:text-ink')}>
+            {l} <span className="text-faint tabular-nums ml-1">
+              {k === 'upcoming' ? rows.filter(isUpcoming).length : rows.filter(d => !isUpcoming(d)).length}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="border-t border-line">
+        <div className="flex items-baseline gap-4 text-[11px] text-faint px-1 py-2 border-b border-line">
+          <span className="w-20 tabular-nums">Date</span>
+          <span className="w-12 tabular-nums">Time</span>
+          <span className="flex-1">Donor</span>
+          <span className="w-10 tabular-nums">Type</span>
+          <span className="w-24 hidden md:inline">Status</span>
+          <span className="w-24 text-right">Action</span>
+        </div>
+        {filtered.map(d => {
+          const date = new Date(d.scheduledDate)
+          const donor = typeof d.donor === 'object' ? d.donor : null
+          const bt = d.bloodType.replace('-', '−')
+          return (
+            <div key={d._id} className="flex items-baseline gap-4 py-3 px-1 border-b border-line text-[13px] hover:bg-surface transition-colors">
+              <span className="text-ink tabular-nums w-20">{date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span>
+              <span className="text-muted tabular-nums w-12">{date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="flex-1 min-w-0 truncate text-ink">{donor?.fullName ?? '—'}</span>
+              <span className="text-ink tabular-nums w-10">{bt}</span>
+              <span className="text-muted w-24 hidden md:inline">{d.status.replace('_', ' ')}</span>
+              <button className="w-24 text-right text-ink hover:text-accent text-[12px] underline-offset-4 hover:underline">
+                {actionLabel[d.status] || 'details →'}
+              </button>
+            </div>
+          )
+        })}
+        {filtered.length === 0 && (
+          <div className="py-12 text-center text-[13px] text-muted">No appointments.</div>
+        )}
       </div>
     </div>
   )

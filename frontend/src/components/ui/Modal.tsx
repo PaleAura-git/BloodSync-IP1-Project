@@ -1,61 +1,51 @@
-import React from 'react'
-import { Button } from './Button'
+import React, { useEffect } from 'react'
+import { cn } from '../../utils/cn'
+import { Icons } from '../icons'
 
 interface ModalProps {
   open: boolean
   onClose: () => void
-  title: string
+  title?: string
+  subtitle?: string
   children: React.ReactNode
-  actions?: React.ReactNode
+  footer?: React.ReactNode
+  size?: 'sm' | 'md' | 'lg'
 }
 
-export function Modal({ open, onClose, title, children, actions }: ModalProps) {
+const sizes = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl' }
+
+export function Modal({ open, onClose, title, subtitle, children, footer, size = 'md' }: ModalProps) {
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
   if (!open) return null
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div className="bg-bg-surface rounded-lg border border-bg-border w-full max-w-md mx-4">
-        <div className="p-5">
-          <h3 className="font-heading text-[14px] font-semibold text-text-primary mb-3">{title}</h3>
-          <div className="text-text-secondary text-[13px]">{children}</div>
-        </div>
-        {actions && (
-          <div className="flex justify-end gap-2 px-5 pb-5">
-            <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-            {actions}
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}/>
+      <div className={cn('relative w-full bs-card-raised overflow-hidden animate-slide-up', sizes[size])}>
+        {(title || subtitle) && (
+          <header className="px-6 pt-5 pb-3 border-b border-line flex items-start justify-between gap-4">
+            <div>
+              {title && <h2 className="text-lg font-semibold text-ink">{title}</h2>}
+              {subtitle && <p className="text-sm text-muted mt-1">{subtitle}</p>}
+            </div>
+            <button onClick={onClose} className="text-muted hover:text-ink mt-0.5">
+              <Icons.X size={16}/>
+            </button>
+          </header>
+        )}
+        <div className="px-6 py-5">{children}</div>
+        {footer && (
+          <footer className="px-6 py-4 bg-surface2 border-t border-line flex justify-end gap-2">
+            {footer}
+          </footer>
         )}
       </div>
     </div>
-  )
-}
-
-interface ConfirmModalProps {
-  open: boolean
-  onClose: () => void
-  onConfirm: () => void
-  title: string
-  message: string
-  confirmLabel?: string
-  loading?: boolean
-}
-
-export function ConfirmModal({ open, onClose, onConfirm, title, message, confirmLabel = 'Confirm', loading }: ConfirmModalProps) {
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={title}
-      actions={
-        <Button variant="danger" size="sm" onClick={onConfirm} loading={loading}>
-          {confirmLabel}
-        </Button>
-      }
-    >
-      {message}
-    </Modal>
   )
 }

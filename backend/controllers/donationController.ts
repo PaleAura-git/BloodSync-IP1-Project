@@ -5,6 +5,7 @@ import Donor from '../models/Donor';
 import Hospital from '../models/Hospital';
 import { AuthRequest } from '../middleware/auth';
 import { CreateDonationBody } from '../types/donation';
+import { transformDonation } from '../utils/transforms';
 
 export interface CreateDonationRequest extends AuthRequest {
   body: CreateDonationBody;
@@ -152,9 +153,10 @@ export const completeDonation = async (
     if (req.body.notes) donation.notes = req.body.notes;
     await donation.save();
 
-    // Update donor's lastDonationDate — this is what feeds back into matching scores
+    // Update donor's lastDonationDate and increment total count
     await Donor.findByIdAndUpdate(donation.donorId, {
       lastDonationDate: donation.donationDate,
+      $inc: { totalDonations: 1 },
     });
 
     res.json({ success: true, data: donation });
@@ -270,7 +272,7 @@ export const getDonorHistory = async (
         : null,
     };
 
-    res.json({ success: true, stats, data: donations });
+    res.json({ success: true, stats, data: donations.map(transformDonation) });
   } catch (err) {
     next(err);
   }
@@ -310,7 +312,7 @@ export const getHospitalDonations = async (
       .populate('donorId', 'fullName bloodType phone email neighborhood')
       .sort({ donationDate: -1 });
 
-    res.json({ success: true, count: donations.length, data: donations });
+    res.json({ success: true, count: donations.length, data: donations.map(transformDonation) });
   } catch (err) {
     next(err);
   }

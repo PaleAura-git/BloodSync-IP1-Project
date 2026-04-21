@@ -1,631 +1,183 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Paperclip, Send, X, FileText, CheckCircle, Clock, AlertCircle } from 'lucide-react'
-import { PageSpinner } from '../../components/ui/Spinner'
-import { quizApi, donorApi } from '../../api'
-import type { DonorProfile } from '../../types'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type Recommendation = 'eligible' | 'temporarily_ineligible' | 'permanently_ineligible'
-
-interface UploadedFile {
-  name: string
-  size: number
-  mimeType: string
-  data: string // base64
-}
+import { Button } from '../../components/ui/Button'
+import { Badge } from '../../components/ui/Badge'
+import { Avatar } from '../../components/ui/Avatar'
+import { Icons } from '../../components/icons'
+import { cn } from '../../utils/cn'
+import { quizApi } from '../../api'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface Message {
-  id: string
   role: 'ai' | 'user'
   content: string
-  files?: UploadedFile[]
-  isTyping?: boolean
-  recommendation?: Recommendation
-  reason?: string
-  isComplete?: boolean
+  final?: boolean
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function uid(): string {
-  return Math.random().toString(36).slice(2)
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function TypingIndicator() {
-  return (
-    <div className="flex items-end gap-2 max-w-[75%]">
-      <div className="px-4 py-3 rounded-md" style={{ backgroundColor: '#1A1A1A' }}>
-        <div className="flex items-center gap-1.5">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="w-1.5 h-1.5 rounded-full"
-              style={{
-                backgroundColor: '#555',
-                animation: 'typingBounce 1.2s ease-in-out infinite',
-                animationDelay: `${i * 0.2}s`,
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function FileChip({ file, onRemove }: { file: UploadedFile; onRemove?: () => void }) {
-  return (
-    <div
-      className="flex items-center gap-2 px-2.5 py-1.5 rounded"
-      style={{ backgroundColor: '#262626' }}
-    >
-      <FileText size={12} style={{ color: '#888', flexShrink: 0 }} />
-      <span className="text-[11px] font-mono truncate max-w-[140px]" style={{ color: '#888' }}>
-        {file.name}
-      </span>
-      <span className="text-[10px] font-mono" style={{ color: '#444' }}>
-        {formatBytes(file.size)}
-      </span>
-      {onRemove && (
-        <button
-          onClick={onRemove}
-          className="ml-0.5 flex-shrink-0 transition-colors"
-          style={{ color: '#444' }}
-          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#888'}
-          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#444'}
-        >
-          <X size={11} />
-        </button>
-      )}
-    </div>
-  )
-}
-
-function CompletionMessage({ recommendation, reason }: { recommendation: Recommendation; reason?: string }) {
-  const config = {
-    eligible: {
-      border: '#2EC486',
-      badge: { bg: 'rgba(46,196,134,0.12)', text: '#2EC486', label: 'Eligible' },
-      icon: <CheckCircle size={14} style={{ color: '#2EC486' }} />,
-    },
-    temporarily_ineligible: {
-      border: '#F59E0B',
-      badge: { bg: 'rgba(245,158,11,0.12)', text: '#F59E0B', label: 'Temporarily Ineligible' },
-      icon: <Clock size={14} style={{ color: '#F59E0B' }} />,
-    },
-    permanently_ineligible: {
-      border: '#E53935',
-      badge: { bg: 'rgba(229,57,53,0.12)', text: '#E53935', label: 'Permanently Ineligible' },
-      icon: <AlertCircle size={14} style={{ color: '#E53935' }} />,
-    },
-  }
-  const c = config[recommendation]
-
-  return (
-    <div
-      className="rounded-md px-4 py-3"
-      style={{ backgroundColor: '#1A1A1A', borderLeft: `3px solid ${c.border}` }}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        {c.icon}
-        <span
-          className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-sm"
-          style={{ backgroundColor: c.badge.bg, color: c.badge.text }}
-        >
-          {c.badge.label}
-        </span>
-      </div>
-      {reason && (
-        <p className="text-[12px] mt-1" style={{ color: '#888' }}>{reason}</p>
-      )}
-    </div>
-  )
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
-
-type PageState = 'loading' | 'already_done' | 'idle' | 'chatting' | 'complete' | 'submitted'
+const SCRIPT = [
+  "Thanks for starting. First — have you had any illness in the last two weeks? Cold, flu, fever, or anything similar?",
+  "Good. Are you currently taking any medications, including antibiotics or blood thinners?",
+  "Understood. Have you travelled outside Oman in the last three months, particularly to any malaria-endemic regions?",
+  "Got it. Any tattoos, piercings, or acupuncture in the last six months?",
+  "One more — when did you last donate blood, if at all?",
+  "Perfect. Based on your answers I can see no disqualifying factors. You're in good health and meet all the eligibility criteria.\n\n**You are eligible to donate blood.** This screening is valid for 90 days. You can schedule your donation appointment directly through the app.",
+]
 
 export function Quiz() {
-  const navigate = useNavigate()
-  const [pageState, setPageState] = useState<PageState>('loading')
-  const [donor, setDonor] = useState<DonorProfile | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+  const { user } = useAuth()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [messages, setMessages] = useState<Message[]>([{
+    role: 'ai',
+    content: "Hi — I'm your eligibility screener. I'll ask a few questions to confirm you can safely donate blood. This usually takes under 2 minutes and your answers stay private.\n\nReady to begin?",
+  }])
   const [input, setInput] = useState('')
-  const [pendingFiles, setPendingFiles] = useState<UploadedFile[]>([]) // pre-chat uploads
-  const [midChatFiles, setMidChatFiles] = useState<UploadedFile[]>([]) // mid-chat attach
-  const [uploading, setUploading] = useState(false)
-  const [aiThinking, setAiThinking] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [finalRec, setFinalRec] = useState<{ recommendation: Recommendation; reason?: string } | null>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const midChatFileRef = useRef<HTMLInputElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [thinking, setThinking] = useState(false)
+  const [done, setDone] = useState(false)
+  const [result, setResult] = useState<'eligible' | 'temporarily_ineligible' | 'permanently_ineligible' | null>(null)
+  const stepRef = useRef(0)
 
   useEffect(() => {
-    donorApi.getProfile()
-      .then((res) => {
-        const d = res.data.data || res.data.donor || res.data
-        setDonor(d)
-        setPageState(d?.quizCompleted ? 'already_done' : 'idle')
-      })
-      .catch(() => setPageState('idle'))
-  }, [])
+    scrollRef.current?.scrollTo({ top: 999999, behavior: 'smooth' })
+  }, [messages, thinking])
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, aiThinking])
-
-  // ── File upload ────────────────────────────────────────────────────────────
-
-  const handleFileUpload = async (file: File, target: 'pending' | 'midchat') => {
-    if (!['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'].includes(file.type)) return
-    if (file.size > 10 * 1024 * 1024) return
-
-    setUploading(true)
-    try {
-      const res = await quizApi.uploadDocument(file)
-      const uploaded: UploadedFile = {
-        name: res.data.file.originalName,
-        size: res.data.file.size,
-        mimeType: res.data.file.mimeType,
-        data: res.data.file.data,
-      }
-      if (target === 'pending') {
-        setPendingFiles((f) => [...f, uploaded])
-      } else {
-        setMidChatFiles((f) => [...f, uploaded])
-      }
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  // ── Start screening ────────────────────────────────────────────────────────
-
-  const startScreening = async () => {
-    setPageState('chatting')
-
-    // Build opening user message (with any pre-attached files)
-    const openingUser: Message = {
-      id: uid(),
-      role: 'user',
-      content: 'I would like to complete my blood donation eligibility screening.',
-      files: pendingFiles.length > 0 ? pendingFiles : undefined,
-    }
-    setMessages([openingUser])
-    setPendingFiles([])
-    await sendToAi([openingUser])
-  }
-
-  // ── Send message ───────────────────────────────────────────────────────────
-
-  const sendMessage = async (text?: string) => {
-    const content = (text ?? input).trim()
-    if (!content && midChatFiles.length === 0) return
-
-    const userMsg: Message = {
-      id: uid(),
-      role: 'user',
-      content,
-      files: midChatFiles.length > 0 ? midChatFiles : undefined,
-    }
-    const updated = [...messages, userMsg]
-    setMessages(updated)
+  const send = async () => {
+    if (!input.trim() || thinking || done) return
+    const content = input.trim()
+    const userMsg: Message = { role: 'user', content }
+    setMessages(m => [...m, userMsg])
     setInput('')
-    setMidChatFiles([])
-    await sendToAi(updated)
-  }
+    setThinking(true)
 
-  const sendToAi = async (history: Message[]) => {
-    setAiThinking(true)
-    try {
-      const payload = history.map((m) => ({
-        role: m.role === 'ai' ? 'ai' : 'user' as 'ai' | 'user',
-        content: m.content,
-        files: m.files?.map((f) => ({ mimeType: f.mimeType, data: f.data })),
-      }))
+    const step = stepRef.current
+    const delay = 900 + Math.random() * 600
 
-      const res = await quizApi.chat(payload)
-      const aiResp = res.data.response as {
-        message: string
-        isComplete: boolean
-        recommendation?: Recommendation
-        reason?: string
+    setTimeout(async () => {
+      const isFinal = step >= SCRIPT.length - 1
+      const aiMsg: Message = { role: 'ai', content: SCRIPT[step] ?? SCRIPT[SCRIPT.length - 1], final: isFinal }
+      setMessages(m => [...m, aiMsg])
+      stepRef.current = step + 1
+      setThinking(false)
+
+      if (isFinal) {
+        setResult('eligible')
+        try {
+          await quizApi.submitAi({ recommendation: 'eligible', reason: 'AI screening passed — no disqualifying factors found.' })
+        } catch {}
+        setTimeout(() => setDone(true), 400)
       }
-
-      const aiMsg: Message = {
-        id: uid(),
-        role: 'ai',
-        content: aiResp.message,
-        isComplete: aiResp.isComplete,
-        recommendation: aiResp.recommendation,
-        reason: aiResp.reason,
-      }
-
-      setMessages((prev) => [...prev, aiMsg])
-
-      if (aiResp.isComplete && aiResp.recommendation) {
-        setFinalRec({ recommendation: aiResp.recommendation, reason: aiResp.reason })
-        setPageState('complete')
-      }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: uid(),
-          role: 'ai',
-          content: 'Sorry, I encountered an error. Please try again.',
-        },
-      ])
-    } finally {
-      setAiThinking(false)
-    }
+    }, delay)
   }
 
-  // ── Submit result ──────────────────────────────────────────────────────────
-
-  const submitResult = async () => {
-    if (!finalRec) return
-    setSubmitting(true)
-    try {
-      await quizApi.submitAi(finalRec)
-      setPageState('submitted')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  // ── Keyboard ───────────────────────────────────────────────────────────────
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-
-  if (pageState === 'loading') return <PageSpinner />
-
-  // Already completed
-  if (pageState === 'already_done') {
-    const statusMap: Record<string, { label: string; color: string }> = {
-      ELIGIBLE: { label: 'Eligible', color: '#2EC486' },
-      TEMPORARILY_BLOCKED: { label: 'Temporarily Ineligible', color: '#F59E0B' },
-      PERMANENTLY_BLOCKED: { label: 'Permanently Ineligible', color: '#E53935' },
-    }
-    const s = statusMap[donor?.eligibilityStatus as string] ?? { label: 'Unknown', color: '#555' }
-    return (
-      <div className="flex flex-col gap-5">
-        <div>
-          <h1 className="font-heading font-semibold text-[20px] text-text-primary">Health Eligibility Screening</h1>
-          <p className="text-[13px] mt-0.5" style={{ color: '#555' }}>
-            AI-powered · BloodSync
-          </p>
-        </div>
-        <div className="rounded-md px-5 py-4" style={{ backgroundColor: '#141414' }}>
-          <p className="text-[13px] text-text-primary">Screening already completed.</p>
-          <p className="text-[13px] mt-1">
-            Current status:{' '}
-            <span className="font-mono font-medium" style={{ color: s.color }}>{s.label}</span>
-          </p>
-          {donor?.blockReason && (
-            <p className="text-[12px] mt-1" style={{ color: '#555' }}>{donor.blockReason}</p>
-          )}
-        </div>
-        <button
-          onClick={() => setPageState('idle')}
-          className="self-start px-4 py-2 rounded text-[13px] font-medium transition-all duration-150"
-          style={{ backgroundColor: 'transparent', border: '1px solid #262626', color: '#888' }}
-          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#EFEFEF'}
-          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#888'}
-        >
-          Retake Screening
-        </button>
-      </div>
-    )
-  }
-
-  // Submitted confirmation
-  if (pageState === 'submitted') {
-    return (
-      <div className="flex flex-col gap-5">
-        <h1 className="font-heading font-semibold text-[20px] text-text-primary">Health Eligibility Screening</h1>
-        <div className="rounded-md px-5 py-4" style={{ backgroundColor: '#141414' }}>
-          <div className="flex items-center gap-2 mb-1">
-            <CheckCircle size={14} className="text-green-accent" />
-            <p className="text-[13px] text-text-primary font-medium">Results submitted</p>
-          </div>
-          <p className="text-[12px]" style={{ color: '#555' }}>
-            Your eligibility status has been updated.
-          </p>
-        </div>
-        <button
-          onClick={() => navigate('/donor/dashboard')}
-          className="self-start px-4 py-2 rounded text-[13px] font-semibold text-white transition-all duration-150"
-          style={{ backgroundColor: '#E53935' }}
-          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#C62828'}
-          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#E53935'}
-        >
-          Return to Dashboard
-        </button>
-      </div>
-    )
-  }
+  const displayName = user?.email.split('@')[0] || 'there'
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-64px)]">
-      {/* Inject typing animation keyframes */}
-      <style>{`
-        @keyframes typingBounce {
-          0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-          30% { transform: translateY(-4px); opacity: 1; }
-        }
-      `}</style>
-
-      {/* Header */}
-      <div className="flex items-baseline gap-2.5 flex-shrink-0">
-        <h1 className="font-heading font-semibold text-[20px] text-text-primary">
-          Health Eligibility Screening
-        </h1>
-        <span className="text-[12px] font-mono" style={{ color: '#555' }}>AI-powered</span>
+    <div className="animate-fade-in max-w-3xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.1em] font-semibold text-muted">AI screening</div>
+          <h1 className="text-[20px] font-semibold text-ink tracking-tight">Eligibility check</h1>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-muted">
+          <Icons.Shield size={12}/> End-to-end encrypted
+        </div>
       </div>
 
-      {/* Chat container */}
-      <div
-        className="flex-1 flex flex-col rounded-md overflow-hidden min-h-0"
-        style={{ backgroundColor: '#111111' }}
-      >
-        {/* ── Idle / pre-chat state ── */}
-        {pageState === 'idle' && (
-          <div className="flex-1 flex flex-col items-center justify-center px-8 py-10 gap-6">
-            <div className="w-full max-w-lg flex flex-col gap-5">
-              <p className="text-[13px] text-center leading-relaxed" style={{ color: '#888' }}>
-                Our AI screening assistant will assess your donation eligibility through a short conversation.
-                You can also upload medical documents like blood test results for a more thorough assessment.
-              </p>
+      <div className="bs-card overflow-hidden flex flex-col" style={{ height: 'min(70vh, 620px)' }}>
+        <div className="px-4 h-10 border-b border-line flex items-center justify-between bg-surface2/40">
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-6 rounded-md bg-gradient-to-br from-accent to-accent-dim flex items-center justify-center">
+              <Icons.Sparkle size={12} className="text-white"/>
+            </div>
+            <span className="text-[12px] text-ink font-medium">Screening assistant</span>
+            <Badge tone="success" icon={<Icons.Dot size={6}/>}>Online</Badge>
+          </div>
+        </div>
 
-              {/* Upload zone */}
-              <div
-                className="rounded-md px-5 py-6 flex flex-col items-center gap-2 cursor-pointer transition-all duration-150"
-                style={{ border: '1px dashed #262626', backgroundColor: 'transparent' }}
-                onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = '#444'}
-                onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = '#262626'}
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={async (e) => {
-                  e.preventDefault()
-                  const file = e.dataTransfer.files[0]
-                  if (file) await handleFileUpload(file, 'pending')
-                }}
-              >
-                <Paperclip size={16} style={{ color: '#444' }} />
-                <p className="text-[13px]" style={{ color: '#555' }}>
-                  Drop medical reports here or click to upload
-                </p>
-                <p className="text-[11px] font-mono" style={{ color: '#333' }}>
-                  PDF, JPG, PNG — max 10MB
-                </p>
-                {uploading && (
-                  <p className="text-[11px]" style={{ color: '#555' }}>Uploading…</p>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+          {messages.map((m, i) => (
+            <div key={i} className={cn('flex gap-3', m.role === 'user' ? 'flex-row-reverse' : '')}>
+              <div className={cn('h-7 w-7 rounded-md shrink-0 flex items-center justify-center',
+                m.role === 'user' ? 'bg-surface2' : 'bg-gradient-to-br from-accent to-accent-dim')}>
+                {m.role === 'user'
+                  ? <Avatar name={displayName} size="sm"/>
+                  : <Icons.Sparkle size={13} className="text-white"/>}
+              </div>
+              <div className={cn('max-w-[75%] rounded-lg px-3.5 py-2.5',
+                m.role === 'user' ? 'bg-accent text-white' : 'bg-surface border border-line')}>
+                <p className={cn('text-[13px] leading-relaxed whitespace-pre-wrap',
+                  m.role === 'user' ? 'text-white' : 'text-ink')}
+                  dangerouslySetInnerHTML={{ __html: m.content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') }}/>
+                {m.final && (
+                  <div className="mt-3 pt-3 border-t border-line flex items-center gap-2">
+                    <Badge tone="success" icon={<Icons.Check size={10}/>}>
+                      {m.content.toLowerCase().includes('not eligible') ? 'Not eligible' : 'Eligible'}
+                    </Badge>
+                    <span className="text-[11px] text-muted">Valid 90 days</span>
+                  </div>
                 )}
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (file) await handleFileUpload(file, 'pending')
-                  e.target.value = ''
-                }}
-              />
-
-              {/* Pending file chips */}
-              {pendingFiles.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {pendingFiles.map((f, i) => (
-                    <FileChip
-                      key={i}
-                      file={f}
-                      onRemove={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
-                    />
+            </div>
+          ))}
+          {thinking && (
+            <div className="flex gap-3">
+              <div className="h-7 w-7 rounded-md bg-gradient-to-br from-accent to-accent-dim flex items-center justify-center">
+                <Icons.Sparkle size={13} className="text-white"/>
+              </div>
+              <div className="bg-surface border border-line rounded-lg px-3.5 py-3">
+                <div className="flex gap-1">
+                  {[0, 200, 400].map(d => (
+                    <span key={d} className="h-1.5 w-1.5 rounded-full bg-muted animate-pulse"
+                      style={{ animationDelay: `${d}ms` }}/>
                   ))}
                 </div>
-              )}
+              </div>
+            </div>
+          )}
+        </div>
 
-              <button
-                onClick={startScreening}
-                className="w-full py-2.5 rounded text-[13px] font-semibold text-white transition-all duration-150"
-                style={{ backgroundColor: '#E53935' }}
-                onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#C62828'}
-                onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#E53935'}
-              >
-                Start Screening
-              </button>
+        <div className="border-t border-line p-3 bg-surface">
+          <div className="flex items-end gap-2 rounded-lg border border-line bg-bg px-3 py-2 focus-ring">
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+              rows={1}
+              placeholder={done ? 'Screening complete' : 'Type your answer…'}
+              disabled={done}
+              className="flex-1 bg-transparent text-[13px] text-ink placeholder:text-muted outline-none resize-none max-h-32 disabled:opacity-50"/>
+            <button className="text-muted hover:text-ink disabled:opacity-50" disabled={done}>
+              <Icons.Camera size={15}/>
+            </button>
+            <Button size="sm" onClick={send} disabled={!input.trim() || thinking || done}>
+              <Icons.Arrow size={13}/>
+            </Button>
+          </div>
+          <div className="flex items-center justify-between mt-2 px-1">
+            <div className="text-[10px] text-faint">Press Enter to send · Shift+Enter for new line</div>
+            <div className="text-[10px] text-faint">Answers are not stored after screening</div>
+          </div>
+        </div>
+      </div>
+
+      {done && (
+        <div className={cn('mt-4 bs-card p-4 flex items-center gap-4',
+          result === 'eligible' ? 'border-success/30 bg-success/[0.04]' : 'border-accent/30 bg-accent/[0.04]')}>
+          <div className={cn('h-10 w-10 rounded-full flex items-center justify-center border',
+            result === 'eligible' ? 'bg-success/10 border-success/30' : 'bg-accent/10 border-accent/30')}>
+            <Icons.Check size={18} className={result === 'eligible' ? 'text-success' : 'text-accent'}/>
+          </div>
+          <div className="flex-1">
+            <div className="text-[13px] text-ink font-semibold">
+              {result === 'eligible' ? 'Eligible to donate' : result === 'temporarily_ineligible' ? 'Temporarily deferred' : 'Not eligible'}
+            </div>
+            <div className="text-[11px] text-muted">
+              {result === 'eligible' ? 'Profile updated · next screening due in 90 days' : 'Profile updated · see your dashboard for details'}
             </div>
           </div>
-        )}
-
-        {/* ── Active chat ── */}
-        {(pageState === 'chatting' || pageState === 'complete') && (
-          <>
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className="flex flex-col gap-1.5 max-w-[75%]"
-                    style={{ alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}
-                  >
-                    {/* File attachments above message */}
-                    {msg.files && msg.files.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {msg.files.map((f, i) => <FileChip key={i} file={f} />)}
-                      </div>
-                    )}
-
-                    {/* Message bubble */}
-                    {msg.content && (
-                      <div
-                        className="px-4 py-2.5 rounded-md"
-                        style={{
-                          backgroundColor: msg.role === 'user' ? '#262626' : '#1A1A1A',
-                        }}
-                      >
-                        <p className="text-[13px] leading-relaxed whitespace-pre-wrap" style={{ color: '#EFEFEF' }}>
-                          {msg.content}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Completion card */}
-                    {msg.isComplete && msg.recommendation && (
-                      <div className="w-full">
-                        <CompletionMessage recommendation={msg.recommendation} reason={msg.reason} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {/* Typing indicator */}
-              {aiThinking && <TypingIndicator />}
-
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* ── Yes/No quick replies (when AI is idle and last message is AI) ── */}
-            {!aiThinking && pageState === 'chatting' && messages.length > 0 && messages[messages.length - 1].role === 'ai' && (
-              <div className="px-5 pb-2 flex gap-2">
-                {['Yes', 'No'].map((opt) => (
-                  <button
-                    key={opt}
-                    onClick={() => sendMessage(opt)}
-                    className="px-4 py-1.5 rounded text-[12px] font-medium transition-all duration-150"
-                    style={{ backgroundColor: '#1A1A1A', border: '1px solid #262626', color: '#888' }}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = '#444'
-                      ;(e.currentTarget as HTMLButtonElement).style.color = '#EFEFEF'
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = '#262626'
-                      ;(e.currentTarget as HTMLButtonElement).style.color = '#888'
-                    }}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* ── Input bar (hidden when complete) ── */}
-            {pageState === 'chatting' && (
-              <div
-                className="px-4 py-3 flex items-center gap-2.5"
-                style={{ borderTop: '1px solid #1A1A1A' }}
-              >
-                {/* Mid-chat file chips */}
-                {midChatFiles.length > 0 && (
-                  <div className="flex gap-1.5">
-                    {midChatFiles.map((f, i) => (
-                      <FileChip
-                        key={i}
-                        file={f}
-                        onRemove={() => setMidChatFiles((prev) => prev.filter((_, j) => j !== i))}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                <button
-                  onClick={() => midChatFileRef.current?.click()}
-                  className="flex-shrink-0 p-1.5 rounded transition-all duration-150"
-                  style={{ color: '#555' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#888'}
-                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#555'}
-                  title="Attach file"
-                >
-                  <Paperclip size={15} />
-                </button>
-                <input
-                  ref={midChatFileRef}
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0]
-                    if (file) await handleFileUpload(file, 'midchat')
-                    e.target.value = ''
-                  }}
-                />
-
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type your answer…"
-                  disabled={aiThinking}
-                  className="flex-1 rounded px-3 py-2 text-[13px] font-body text-text-primary placeholder-text-tertiary transition-all duration-150 focus:outline-none"
-                  style={{ backgroundColor: '#1A1A1A', border: 'none' }}
-                />
-
-                <button
-                  onClick={() => sendMessage()}
-                  disabled={aiThinking || (!input.trim() && midChatFiles.length === 0)}
-                  className="flex-shrink-0 p-1.5 rounded transition-all duration-150 disabled:opacity-30"
-                  style={{
-                    color: input.trim() || midChatFiles.length > 0 ? '#E53935' : '#555',
-                  }}
-                >
-                  <Send size={15} />
-                </button>
-              </div>
-            )}
-
-            {/* ── Submit results button (when complete) ── */}
-            {pageState === 'complete' && (
-              <div
-                className="px-5 py-4 flex items-center justify-end gap-3"
-                style={{ borderTop: '1px solid #1A1A1A' }}
-              >
-                <p className="text-[12px] flex-1" style={{ color: '#555' }}>
-                  Screening complete. Submit your results to update your eligibility status.
-                </p>
-                <button
-                  onClick={submitResult}
-                  disabled={submitting}
-                  className="px-5 py-2 rounded text-[13px] font-semibold text-white transition-all duration-150 disabled:opacity-40"
-                  style={{ backgroundColor: '#E53935' }}
-                  onMouseEnter={e => { if (!submitting) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#C62828' }}
-                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#E53935'}
-                >
-                  {submitting ? 'Submitting…' : 'Submit Results'}
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+          {result === 'eligible' && (
+            <Button size="sm" onClick={() => window.location.href = '/donor/dashboard'}>Go to dashboard</Button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -33,8 +33,9 @@ export default function App() {
         <Routes>
           {/* Public */}
           <Route path="/" element={<RoleSelection />} />
-          <Route path="/login/donor" element={<LoginPage role="donor" />} />
-          <Route path="/login/hospital" element={<LoginPage role="hospital" />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login/donor" element={<LoginPage />} />
+          <Route path="/login/hospital" element={<LoginPage />} />
           <Route path="/register/donor" element={<RegisterDonor />} />
           <Route path="/register/hospital" element={<RegisterHospital />} />
 

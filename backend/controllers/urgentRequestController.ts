@@ -8,6 +8,7 @@ import { CreateUrgentRequestBody } from '../types/urgentRequest';
 import { BloodType } from '../types/donor';
 import { getCompatibleBloodTypes } from '../utils/bloodCompatibility';
 import { sendDonationRequestEmail } from '../services/emailService';
+import { transformUrgentRequest } from '../utils/transforms';
 
 /**
  * Minimum rest period between whole-blood donations (56 days = 8 weeks).
@@ -57,7 +58,7 @@ export const createUrgentRequest = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { bloodType, unitsNeeded, urgencyLevel, reason } = req.body;
+    const { bloodType, unitsNeeded, urgencyLevel, reason, notes } = req.body;
 
     if (!bloodType || !unitsNeeded || !urgencyLevel) {
       res.status(400).json({ success: false, message: 'bloodType, unitsNeeded, and urgencyLevel are required' });
@@ -70,6 +71,14 @@ export const createUrgentRequest = async (
       return;
     }
 
+    // Normalize frontend urgency values ('critical'/'urgent'/'normal') to DB enum ('CRITICAL'/'HIGH')
+    const urgencyMap: Record<string, string> = {
+      critical: 'CRITICAL', CRITICAL: 'CRITICAL',
+      urgent: 'HIGH',       HIGH: 'HIGH',
+      normal: 'HIGH',
+    };
+    const normalizedUrgency = urgencyMap[urgencyLevel] ?? 'HIGH';
+
     // Urgent requests expire after 24 hours to keep the active list current
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
@@ -77,8 +86,8 @@ export const createUrgentRequest = async (
       hospitalId: hospital._id,
       bloodType,
       unitsNeeded,
-      urgencyLevel,
-      reason,
+      urgencyLevel: normalizedUrgency,
+      reason: notes ?? reason,   // frontend sends 'notes', legacy sends 'reason'
       expiresAt,
     });
 
@@ -138,7 +147,7 @@ export const createUrgentRequest = async (
 
     res.status(201).json({
       success: true,
-      data: urgentRequest,
+      data: transformUrgentRequest(urgentRequest),
       notifiedDonors: donors.length,
     });
   } catch (err) {
@@ -177,7 +186,7 @@ export const getActiveRequests = async (
       .populate('hospitalId', 'hospitalName address neighborhood phone')
       .sort({ urgencyLevel: 1, createdAt: -1 });
 
-    res.json({ success: true, count: requests.length, data: requests });
+    res.json({ success: true, count: requests.length, data: requests.map(transformUrgentRequest) });
   } catch (err) {
     next(err);
   }
@@ -209,7 +218,7 @@ export const getHospitalRequests = async (
     const requests = await UrgentRequest.find({ hospitalId: hospital._id })
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, count: requests.length, data: requests });
+    res.json({ success: true, count: requests.length, data: requests.map(transformUrgentRequest) });
   } catch (err) {
     next(err);
   }

@@ -1,33 +1,33 @@
+import React from 'react'
+import { cn } from '../../utils/cn'
+
+type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'
+
 interface BadgeProps {
   children: React.ReactNode
-  variant?: 'red' | 'green' | 'amber' | 'dim' | 'outline'
+  tone?: Tone
+  size?: 'sm' | 'md'
+  icon?: React.ReactNode
   className?: string
 }
 
-export function Badge({ children, variant = 'dim', className = '' }: BadgeProps) {
-  const variants = {
-    // Solid backgrounds — red always punches with white text
-    red: 'text-white',
-    green: 'bg-green-accent/15 text-green-accent',
-    amber: 'bg-amber-accent/15 text-amber-accent',
-    dim: 'text-text-secondary',
-    outline: 'text-text-secondary',
-  }
+const tones: Record<Tone, string> = {
+  neutral: 'bg-surface2 text-ink border-line',
+  accent:  'bg-accent-glow text-accent border-accent/20',
+  success: 'bg-success/10 text-success border-success/25',
+  warning: 'bg-warning/10 text-warning border-warning/30',
+  danger:  'bg-danger/10 text-danger border-danger/25',
+  info:    'bg-info/10 text-info border-info/25',
+}
 
-  const styles: Record<string, React.CSSProperties> = {
-    red: { backgroundColor: '#E53935' },
-    green: {},
-    amber: {},
-    dim: { backgroundColor: '#1E1E1E' },
-    outline: { backgroundColor: 'transparent', border: '1px solid #262626' },
-  }
-
+export function Badge({ children, tone = 'neutral', size = 'sm', icon, className }: BadgeProps) {
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-mono font-medium ${variants[variant]} ${className}`}
-      style={styles[variant]}
-    >
-      {children}
+    <span className={cn(
+      'inline-flex items-center gap-1 rounded-full border font-medium',
+      size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs',
+      tones[tone], className
+    )}>
+      {icon}{children}
     </span>
   )
 }
